@@ -8,10 +8,8 @@ and AMLX documents without loading the XML into its context.
 - Resolves external libraries, class inheritance, mirror objects and object references
 - Every answer names IDs and paths, so a client can check each statement in the model
 
-The AutomationML Editor plugins for the two languages are
-[AMLFPB.js](https://github.com/hsu-aut/AMLFPB.js) and
-[AMLPetriNet](https://github.com/hsu-aut/AMLPetriNet); their domain libraries are in
-[aml-graphical-description-languages](https://github.com/hsu-aut/aml-graphical-description-languages).
+It knows CAEX, not any particular domain library, so it works the same on a plant structure, a
+process description, a behaviour model, or all three in one document.
 
 ## Repository
 
@@ -109,6 +107,13 @@ Graph traversal happens in the server, not in the model, which keeps small local
 
 The server only reads. XML is parsed with DTD processing disabled. Descriptions and attribute values
 reach the language model as they are, so treat documents from untrusted sources accordingly.
+
+## Related
+
+[AMLFPB.js](https://github.com/hsu-aut/AMLFPB.js) and
+[AMLPetriNet](https://github.com/hsu-aut/AMLPetriNet) edit VDI/VDE 3682 process descriptions and
+Petri nets inside AML documents; their domain libraries are in
+[aml-graphical-description-languages](https://github.com/hsu-aut/aml-graphical-description-languages).
 
 ## Licence
 
