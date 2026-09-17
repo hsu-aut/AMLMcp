@@ -8,7 +8,6 @@ on:
 permissions:
   contents: read
 
-# Two tags pushed in quick succession must not overwrite each other's release.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -58,10 +57,6 @@ jobs:
     name: nuget package
     timeout-minutes: 20
     runs-on: ubuntu-latest
-    # The key is read here, at job level, so that the push step can ask whether it is set:
-    # the secrets context is not available in a step's `if`, the env context is.
-    env:
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -69,18 +64,52 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Pack
         run: dotnet pack src/AmlMcp -c Release -o nupkg --nologo
+      # The tag has to match the package version, or v0.2.0 would publish a 0.1.0 package.
+      - name: Check that the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "nupkg/AutomationML.McpServer.${version}.nupkg" || { ls nupkg; echo "no package for version ${version}"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: nupkg
           path: |
             nupkg/*.nupkg
             nupkg/*.snupkg
-      - name: Push to NuGet
-        if: startsWith(github.ref, 'refs/tags/v') && env.NUGET_API_KEY != ''
-        run: dotnet nuget push nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-      - name: Say why nothing was pushed
-        if: startsWith(github.ref, 'refs/tags/v') && env.NUGET_API_KEY == ''
-        run: echo "::warning::NUGET_API_KEY is not configured, the package was built but not published."
+
+  nuget:
+    # Trusted publishing: GitHub proves the workflow's identity (OIDC) and nuget.org hands out
+    # a short-lived key, so no API key is stored here. A version on nuget.org cannot be
+    # replaced, so the environment can require an approval before this job runs.
+    name: nuget.org
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    environment: nuget.org
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: nupkg
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Log in to nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          # nuget.org account (profile name, not e-mail) that owns the trusted publishing policy.
+          user: ${{ vars.NUGET_USER }}
+      - name: Push the package
+        run: >
+          dotnet nuget push "nupkg/*.nupkg"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
 
   release:
     name: github release
@@ -101,6 +130,7 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.nupkg
           generate_release_notes: true
+          fail_on_unmatched_files: true
           body: |
             On macOS the downloaded binary is quarantined, because it is not signed or notarised.
             Clear the attribute once after unpacking:
@@ -111,13 +141,13 @@ jobs:
   # the GitHub repository and downloads the package from nuget.org, so both have to exist
   # first. Enable by setting the repository variable PUBLISH_TO_MCP_REGISTRY to "true".
   mcp-registry:
-    name: mcp registry (disabled until PUBLISH_TO_MCP_REGISTRY=true)
-    needs: [ package ]
+    name: mcp registry
+    needs: nuget
     if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_TO_MCP_REGISTRY == 'true'
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # the OIDC token that proves this workflow runs in the hsu-aut namespace
+      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
