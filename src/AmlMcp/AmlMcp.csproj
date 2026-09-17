@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The version comes from Directory.Build.props at the root of the repository. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>aml-mcp</AssemblyName>
+    <RootNamespace>AmlMcp</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>AutomationML.McpServer</PackageId>
+    <PackageType>McpServer</PackageType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>aml-mcp</ToolCommandName>
+    <Title>AutomationML MCP Server</Title>
+    <Description>An MCP server for AutomationML (IEC 62714). Lets a language model client read and navigate CAEX 3.0, CAEX 2.15 and AMLX documents: hierarchies, class libraries, links, mirror objects and object references. Reads only.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!-- A short readme of its own: nuget.org does not resolve the relative links of the repository readme. -->
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/hsu-aut/AMLMcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/hsu-aut/AMLMcp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>automationml;caex;amlx;iec62714;mcp;model-context-protocol;engineering;digital-twin</PackageTags>
+  </PropertyGroup>
+
+  <!--
+    SourceLink: the package points back at the commit it was built from, and a debugger can
+    fetch the sources from there. The .NET 10 SDK imports Microsoft.SourceLink.GitHub itself
+    (Microsoft.NET.Sdk.SourceLink.targets), and an explicit PackageReference would only replace
+    it with the older 8.0.0 package, so only the settings are needed here.
+    ContinuousIntegrationBuild is set for CI builds in Directory.Build.props.
+  -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <None Include=".mcp\server.json" Pack="true" PackagePath="\.mcp\" />
+  </ItemGroup>
+
+</Project>

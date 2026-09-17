@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- One place for the version. Both server.json files repeat it; check-metadata.py compares them. -->
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>Hamied Nabizada</Authors>
+    <Company>Helmut Schmidt University Hamburg, Institute of Automation Technology</Company>
+    <Copyright>Copyright (c) 2026 Hamied Nabizada, Institute of Automation Technology, Helmut Schmidt University Hamburg</Copyright>
+  </PropertyGroup>
+
+  <!-- Deterministic paths in the symbols, so SourceLink resolves to the commit. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

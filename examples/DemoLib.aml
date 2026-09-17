@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CAEXFile SchemaVersion="3.0" FileName="DemoLib.aml" xmlns="http://www.dke.de/CAEX">
+  <SuperiorStandardVersion>AutomationML 2.10</SuperiorStandardVersion>
+  <InterfaceClassLib Name="DemoInterfaceLib">
+    <InterfaceClass Name="Coupling">
+      <Description>Connection point used by the links in the example.</Description>
+    </InterfaceClass>
+  </InterfaceClassLib>
+  <RoleClassLib Name="DemoRoleLib">
+    <RoleClass Name="Station">
+      <Description>A station of the plant.</Description>
+    </RoleClass>
+    <RoleClass Name="Step" RefBaseClassPath="DemoRoleLib/Station">
+      <Description>A step of the process, carried out by a station.</Description>
+    </RoleClass>
+  </RoleClassLib>
+  <SystemUnitClassLib Name="DemoUnitLib">
+    <SystemUnitClass Name="Equipment">
+      <Description>Any piece of equipment.</Description>
+      <Attribute Name="Manufacturer" AttributeDataType="xs:string"><DefaultValue>Example Corp</DefaultValue></Attribute>
+    </SystemUnitClass>
+    <SystemUnitClass Name="Drill" RefBaseClassPath="DemoUnitLib/Equipment">
+      <Description>A drilling unit.</Description>
+      <Attribute Name="SpindleSpeed" AttributeDataType="xs:double" Unit="1/min"><DefaultValue>3000</DefaultValue></Attribute>
+      <SupportedRoleClass RefRoleClassPath="DemoRoleLib/Station" />
+    </SystemUnitClass>
+  </SystemUnitClassLib>
+</CAEXFile>

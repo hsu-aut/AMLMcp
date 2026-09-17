@@ -1,0 +1,93 @@
+using ModelContextProtocol;
+
+namespace AmlMcp;
+
+/// <summary>
+/// Keeps opened AutomationML documents in memory. A document is reloaded
+/// transparently when its file changed on disk, so an editor session and the
+/// MCP server can work on the same file.
+/// </summary>
+public sealed class DocumentStore
+{
+    private readonly Dictionary<string, AmlModel> _documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _gate = new();
+    private readonly ServerOptions _options;
+    private string? _current;
+
+    public DocumentStore() : this(ServerOptions.Default) { }
+
+    public DocumentStore(ServerOptions options) => _options = options;
+
+    public ServerOptions Options => _options;
+
+    public AmlModel Open(string path)
+    {
+        var full = FullPath(path);
+        if (!_options.Allows(full))
+            throw new McpException(
+                $"'{full}' is outside the directories this server may read ({_options.RootsDescription}).");
+        if (Directory.Exists(full))
+            throw new McpException($"'{full}' is a directory. Name an .aml or .amlx file inside it.");
+        if (!File.Exists(full))
+            throw new McpException($"File not found: {full}");
+        lock (_gate)
+        {
+            AmlModel model;
+            try { model = AmlModel.Load(full, _options); }
+            catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                throw new McpException($"Could not read '{full}' as AutomationML: {ex.Message}");
+            }
+            catch (Exception ex) when (ex is not McpException)
+            {
+                throw new McpException($"Internal error while reading '{full}': {ex.GetType().Name}: {ex.Message}");
+            }
+            _documents[full] = model;
+            _current = full;
+            return model;
+        }
+    }
+
+    /// <summary>Returns the given document, or the most recently opened one.</summary>
+    public AmlModel Get(string? path)
+    {
+        lock (_gate)
+        {
+            string? key = string.IsNullOrWhiteSpace(path) ? _current : FullPath(path);
+            if (key is null)
+                throw new McpException("No AutomationML document is open. Call open_aml_document first.");
+
+            if (!_documents.TryGetValue(key, out var model))
+                return Open(key);
+
+            if (!File.Exists(key))
+                throw new McpException($"'{key}' was open, but the file is gone now.");
+
+            if (File.GetLastWriteTimeUtc(key) != model.LoadedWriteTimeUtc)
+                return Open(key);
+
+            _current = key;
+            return model;
+        }
+    }
+
+    /// <summary>Turns what a client sent into a full path, with a usable message when it cannot.</summary>
+    private static string FullPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new McpException("A file path is required, for example the path of an .aml or .amlx file.");
+        try
+        {
+            return Path.GetFullPath(path.Trim().Trim('"'));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new McpException($"'{path}' is not a usable file path: {ex.Message}");
+        }
+    }
+
+    public IReadOnlyCollection<string> OpenDocuments
+    {
+        get { lock (_gate) return _documents.Keys.ToList(); }
+    }
+}

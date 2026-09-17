@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CAEXFile SchemaVersion="3.0" FileName="plant.aml" xmlns="http://www.dke.de/CAEX">
+  <SuperiorStandardVersion>AutomationML 2.10</SuperiorStandardVersion>
+  <ExternalReference Path="DemoLib.aml" Alias="Demo" />
+  <AttributeTypeLib Name="AutomationML_ObjectReferences_AttributeTypeLib">
+    <AttributeType Name="refBaseObj" AttributeDataType="xs:IDREF">
+      <Description>Reference to the object this one is derived from.</Description>
+    </AttributeType>
+  </AttributeTypeLib>
+
+  <InstanceHierarchy Name="ProcessView" ID="{11110000-0000-0000-0000-000000000001}">
+    <Description>What happens: two steps of a drilling process.</Description>
+    <InternalElement Name="ClampWorkpiece" ID="{11110000-0000-0000-0000-000000000010}">
+      <Description>The workpiece is clamped before drilling.</Description>
+      <ExternalInterface Name="Next" ID="{11110000-0000-0000-0000-000000000011}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+      <RoleRequirements RefBaseRoleClassPath="Demo@DemoRoleLib/Step" />
+    </InternalElement>
+    <InternalElement Name="DrillHole" ID="{11110000-0000-0000-0000-000000000020}">
+      <Description>The hole is drilled. This step is carried out by the drilling station.</Description>
+      <ExternalInterface Name="Previous" ID="{11110000-0000-0000-0000-000000000021}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+      <ExternalInterface Name="CarriedOutBy" ID="{11110000-0000-0000-0000-000000000022}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+      <RoleRequirements RefBaseRoleClassPath="Demo@DemoRoleLib/Step" />
+    </InternalElement>
+    <InternalLink Name="ClampThenDrill" ID="{11110000-0000-0000-0000-0000000000f1}"
+                  RefPartnerSideA="{11110000-0000-0000-0000-000000000011}" RefPartnerSideB="{11110000-0000-0000-0000-000000000021}" />
+  </InstanceHierarchy>
+
+  <InstanceHierarchy Name="BehaviorView" ID="{22220000-0000-0000-0000-000000000001}">
+    <Description>When it happens: the drilling station is free, busy, or reporting a result.</Description>
+    <InternalElement Name="Free" ID="{22220000-0000-0000-0000-000000000010}">
+      <Attribute Name="InitialMarking" AttributeDataType="xs:nonNegativeInteger"><Value>1</Value></Attribute>
+      <ExternalInterface Name="Signal" ID="{22220000-0000-0000-0000-000000000011}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+    </InternalElement>
+    <InternalElement Name="Drilling" ID="{22220000-0000-0000-0000-000000000020}">
+      <Attribute Name="InitialMarking" AttributeDataType="xs:nonNegativeInteger"><Value>0</Value></Attribute>
+      <ExternalInterface Name="Signal" ID="{22220000-0000-0000-0000-000000000021}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+    </InternalElement>
+  </InstanceHierarchy>
+
+  <InstanceHierarchy Name="PlantStructure" ID="{33330000-0000-0000-0000-000000000001}">
+    <Description>What is there: the plant with one station and its drilling unit.</Description>
+    <InternalElement Name="Line" ID="{33330000-0000-0000-0000-000000000010}">
+      <InternalElement Name="DrillingStation" ID="{33330000-0000-0000-0000-000000000020}" RefBaseSystemUnitPath="Demo@DemoUnitLib/Drill">
+        <Description>The station that performs the drilling step.</Description>
+        <Attribute Name="SpindleSpeed" AttributeDataType="xs:double" Unit="1/min"><Value>2400</Value></Attribute>
+        <ExternalInterface Name="ProcessCoupling" ID="{33330000-0000-0000-0000-000000000021}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+        <ExternalInterface Name="BusySignal" ID="{33330000-0000-0000-0000-000000000022}" RefBaseClassPath="Demo@DemoInterfaceLib/Coupling" />
+        <RoleRequirements RefBaseRoleClassPath="Demo@DemoRoleLib/Station" />
+      </InternalElement>
+    </InternalElement>
+    <InternalElement Name="DrillingStation" ID="{33330000-0000-0000-0000-000000000030}" RefBaseSystemUnitPath="{33330000-0000-0000-0000-000000000020}">
+      <Description>A mirror of the station, as a group would hold it.</Description>
+    </InternalElement>
+    <InternalLink Name="StepToStation" ID="{33330000-0000-0000-0000-0000000000f1}"
+                  RefPartnerSideA="{11110000-0000-0000-0000-000000000022}" RefPartnerSideB="{33330000-0000-0000-0000-000000000021}" />
+    <InternalLink Name="StationToBehavior" ID="{33330000-0000-0000-0000-0000000000f2}"
+                  RefPartnerSideA="{33330000-0000-0000-0000-000000000022}" RefPartnerSideB="{22220000-0000-0000-0000-000000000021}" />
+  </InstanceHierarchy>
+</CAEXFile>

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.hsu-aut/aml-mcp",
+  "description": "Read-only access to AutomationML documents: CAEX 3.0, CAEX 2.15 and AMLX containers.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/hsu-aut/AMLMcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "nuget",
+      "identifier": "AutomationML.McpServer",
+      "version": "0.1.0",
+      "runtimeHint": "dnx",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--root",
+          "description": "Restrict reading to this directory. Repeat for more than one.",
+          "isRequired": false,
+          "isRepeated": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

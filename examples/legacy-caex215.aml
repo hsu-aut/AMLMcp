@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CAEXFile FileName="legacy-caex215.aml" SchemaVersion="2.15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="CAEX_ClassModel_V2.15.xsd">
+  <InterfaceClassLib Name="AutomationMLInterfaceClassLib">
+    <InterfaceClass Name="AutomationMLBaseInterface" />
+  </InterfaceClassLib>
+  <InstanceHierarchy Name="Plant">
+    <InternalElement Name="Pump" ID="{55550000-0000-0000-0000-000000000001}">
+      <ExternalInterface Name="Out" ID="{55550000-0000-0000-0000-000000000011}" RefBaseClassPath="AutomationMLInterfaceClassLib/AutomationMLBaseInterface" />
+    </InternalElement>
+    <InternalElement Name="Tank" ID="{55550000-0000-0000-0000-000000000002}">
+      <ExternalInterface Name="In" ID="{55550000-0000-0000-0000-000000000021}" RefBaseClassPath="AutomationMLInterfaceClassLib/AutomationMLBaseInterface" />
+    </InternalElement>
+    <InternalLink Name="Pipe" RefPartnerSideA="{55550000-0000-0000-0000-000000000001}:Out" RefPartnerSideB="Plant/Tank:In" />
+  </InstanceHierarchy>
+</CAEXFile>
