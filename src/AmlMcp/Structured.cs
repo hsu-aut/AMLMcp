@@ -179,14 +179,18 @@ internal static class Structured
             .Where(x => !(MirrorReferenceOf(x.Element) is not null &&
                           ((x.Attribute == "RefBaseSystemUnitPath" && x.Element.Name.LocalName == "InternalElement") ||
                            (x.Attribute == "RefBaseClassPath" && x.Element.Name.LocalName == "ExternalInterface"))))
-            .Where(x => m.ResolveClass(x.Value) is null)
+            .Where(x => m.ResolveClass(x.Value, x.Element) is null)
             .GroupBy(x => x.Value!).ToList();
 
         var missingAliases = m.ExternalRefs.Where(r => !r.Loaded).Select(r => r.Alias).ToHashSet();
         foreach (var r in m.ExternalRefs.Where(r => !r.Loaded))
-            problems.Add(new ProblemInfo("externalLibraryNotLoaded", $"{r.Alias} -> {r.Path} ({r.Problem})"));
+            (r.Remote ? notes : problems).Add(new ProblemInfo(r.Remote ? "remoteLibraryNotDownloaded" : "externalLibraryNotLoaded",
+                $"{r.Alias} -> {r.Path} ({r.Problem})"));
+        foreach (var r in m.ExternalRefs.Where(r => r.Loaded && r.Remote))
+            notes.Add(new ProblemInfo("remoteLibraryLocalCopy", $"{r.Alias} -> {r.Path} read from {r.ResolvedFile}"));
         foreach (var r in m.NestedLibraryProblems)
-            problems.Add(new ProblemInfo("nestedLibraryNotLoaded", $"{r.Alias} -> {r.Path} ({r.Problem})"));
+            (r.Remote ? notes : problems).Add(new ProblemInfo(r.Remote ? "remoteLibraryNotDownloaded" : "nestedLibraryNotLoaded",
+                $"{r.Alias} -> {r.Path} ({r.Problem})"));
         foreach (var g in unresolved.Where(g => !missingAliases.Any(a => g.Key.StartsWith(a + "@", StringComparison.Ordinal))))
             problems.Add(new ProblemInfo("unresolvedClassPath", $"{g.Key} (used {g.Count()}x)"));
         foreach (var dm in m.DanglingMirrors)

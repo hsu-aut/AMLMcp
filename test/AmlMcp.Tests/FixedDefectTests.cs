@@ -470,3 +470,165 @@ public sealed class RootArgumentTests
         Assert.Contains("--root needs a directory", ex.Message);
     }
 }
+
+/// <summary>CAEX 2.15 documents name base classes without their library.</summary>
+public sealed class BareClassNameTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile FileName="bare.aml" SchemaVersion="2.15">
+          <RoleClassLib Name="BaseRoles">
+            <RoleClass Name="Base">
+              <RoleClass Name="Structure" RefBaseClassPath="Base" />
+            </RoleClass>
+          </RoleClassLib>
+          <RoleClassLib Name="OtherRoles">
+            <RoleClass Name="Twin" />
+          </RoleClassLib>
+          <RoleClassLib Name="MoreRoles">
+            <RoleClass Name="Twin" />
+            <RoleClass Name="UsesTwin" RefBaseClassPath="Twin" />
+          </RoleClassLib>
+          <RoleClassLib Name="Orphans">
+            <RoleClass Name="Lost" RefBaseClassPath="Nowhere" />
+          </RoleClassLib>
+        </CAEXFile>
+        """;
+
+    public BareClassNameTests() => AmlTools.OpenDocumentText(_store, _ws.Write("bare.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_unique_bare_name_resolves()
+    {
+        var chain = _store.Get(null).ClassChain("BaseRoles/Base/Structure").Select(c => c.Key).ToList();
+
+        Assert.Equal(new[] { "BaseRoles/Base/Structure", "BaseRoles/Base" }, chain);
+    }
+
+    [Fact]
+    public void A_shared_bare_name_resolves_within_the_library_of_the_class_that_uses_it()
+    {
+        var chain = _store.Get(null).ClassChain("MoreRoles/UsesTwin").Select(c => c.Key).ToList();
+
+        Assert.Equal(new[] { "MoreRoles/UsesTwin", "MoreRoles/Twin" }, chain);
+    }
+
+    [Fact]
+    public void A_shared_bare_name_without_context_is_not_guessed()
+    {
+        Assert.Null(_store.Get(null).ResolveClass("Twin"));
+    }
+
+    [Fact]
+    public void An_unresolved_class_reference_names_the_class_that_makes_it()
+    {
+        var check = AmlTools.CheckText(_store);
+
+        Assert.Contains("unresolved class path: Nowhere  (used 1x, e.g. by Orphans/Lost)", check);
+        Assert.DoesNotContain("unresolved class path: Base ", check);
+        Assert.DoesNotContain("unresolved class path: Twin", check);
+    }
+}
+
+/// <summary>Library names with '/' in them are written in square brackets, as the OPC UA libraries do.</summary>
+public sealed class BracketedClassPathTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="ua.aml" xmlns="http://www.dke.de/CAEX">
+          <AttributeTypeLib Name="ATL_http://opcfoundation.org/UA/">
+            <AttributeType Name="NodeId" AttributeDataType="xs:string" />
+          </AttributeTypeLib>
+          <SystemUnitClassLib Name="SUC_http://opcfoundation.org/UA/">
+            <SystemUnitClass Name="FolderType"><Description>An OPC UA folder.</Description></SystemUnitClass>
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{12340000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Objects" ID="{12340000-0000-0000-0000-000000000001}" RefBaseSystemUnitPath="[SUC_http://opcfoundation.org/UA/]/[FolderType]">
+              <Attribute Name="NodeId" RefAttributeType="[ATL_http://opcfoundation.org/UA/]/[NodeId]"><Value>ns=0;i=85</Value></Attribute>
+            </InternalElement>
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public BracketedClassPathTests() => AmlTools.OpenDocumentText(_store, _ws.Write("ua.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void Bracketed_segments_resolve()
+    {
+        var card = AmlTools.ElementCard(_store, "Plant/Objects");
+
+        Assert.Contains("class meaning: An OPC UA folder.", card);
+        Assert.DoesNotContain("NOT resolved", card);
+        Assert.Contains("no problems found", AmlTools.CheckText(_store));
+    }
+
+    [Fact]
+    public void An_alias_is_only_split_off_outside_the_brackets()
+    {
+        var (alias, plain, segments) = AmlModel.SplitClassPath("Lib@[ATL_http://user@host/UA/]/[NodeId]");
+
+        Assert.Equal("Lib", alias);
+        Assert.Equal("ATL_http://user@host/UA//NodeId", plain);
+        Assert.Equal(2, segments);
+    }
+}
+
+/// <summary>A library behind an http address is not downloaded; that is a note, not a defect.</summary>
+public sealed class RemoteLibraryTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="remote.aml" xmlns="http://www.dke.de/CAEX">
+          <ExternalReference Path="https://token123@example.org/share/RemoteLib.aml" Alias="Remote" />
+          <InstanceHierarchy Name="Plant" ID="{56780000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Pump" ID="{56780000-0000-0000-0000-000000000001}" RefBaseSystemUnitPath="Remote@RemoteLib/Pump" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    private const string Library = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="RemoteLib.aml" xmlns="http://www.dke.de/CAEX">
+          <SystemUnitClassLib Name="RemoteLib">
+            <SystemUnitClass Name="Pump"><Description>A pump from the remote library.</Description></SystemUnitClass>
+          </SystemUnitClassLib>
+        </CAEXFile>
+        """;
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void Without_a_local_copy_it_is_a_note_and_the_token_is_not_shown()
+    {
+        var overview = AmlTools.OpenDocumentText(_store, _ws.Write("remote.aml", Document));
+        var check = AmlTools.CheckText(_store);
+
+        Assert.Contains("no problems found", check);
+        Assert.Contains("note: remote library not downloaded: Remote -> https://example.org/share/RemoteLib.aml", check);
+        Assert.Contains("1 class path(s) used 1x from it are not checked", check);
+        Assert.DoesNotContain("token123", overview + check);
+    }
+
+    [Fact]
+    public void A_local_copy_next_to_the_document_is_used()
+    {
+        _ws.Write("RemoteLib.aml", Library);
+        AmlTools.OpenDocumentText(_store, _ws.Write("remote.aml", Document));
+
+        Assert.Contains("class meaning: A pump from the remote library.", AmlTools.ElementCard(_store, "Plant/Pump"));
+        Assert.Contains("was read from the local copy", AmlTools.CheckText(_store));
+    }
+}

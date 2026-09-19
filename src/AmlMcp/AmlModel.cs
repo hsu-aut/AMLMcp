@@ -5,7 +5,7 @@ using ModelContextProtocol;
 
 namespace AmlMcp;
 
-public sealed record ExternalRef(string Alias, string Path, string? ResolvedFile, bool Loaded, string? Problem, bool OutsideContainer = false);
+public sealed record ExternalRef(string Alias, string Path, string? ResolvedFile, bool Loaded, string? Problem, bool OutsideContainer = false, bool Remote = false);
 
 public sealed record ClassInfo(string Key, string PlainPath, string Kind, string Library, XElement Element, string SourceFile, bool External);
 
@@ -87,6 +87,7 @@ public sealed class AmlModel
     public List<XElement> Hierarchies { get; }
 
     private readonly Dictionary<string, ClassInfo> _plainIndex = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<ClassInfo>> _byName = new(StringComparer.Ordinal);
     private readonly Dictionary<XElement, List<Edge>> _edges = new();
     private readonly Dictionary<string, XElement> _fileCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _indexedAliases = new(StringComparer.OrdinalIgnoreCase);
@@ -162,6 +163,8 @@ public sealed class AmlModel
             Hierarchies = Root.Elements(C + "InstanceHierarchy").ToList();
             IndexClasses(Root, IsContainer ? ContainerPrefix + RootPart : path, alias: null, external: false);
             LoadExternalReferences(Root, baseLocation, inContainer: IsContainer, depth: 0, topLevel: true);
+            var missing = ExternalRefs.Where(r => !r.Loaded).Select(r => Path.GetFileName(r.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            NestedLibraryProblems.RemoveAll(r => missing.Contains(Path.GetFileName(r.Path)));
             IndexLinks();
             IndexReferences();
             IndexMirrors();
@@ -229,6 +232,9 @@ public sealed class AmlModel
                     var info = new ClassInfo(key, plain, cls.Name.LocalName, libName, cls, source, external);
                     Classes.TryAdd(key, info);
                     _plainIndex.TryAdd(plain, info);
+                    if (!_byName.TryGetValue(NameOf(cls), out var sameName))
+                        _byName[NameOf(cls)] = sameName = new List<ClassInfo>();
+                    if (!sameName.Any(c => c.Element == cls)) sameName.Add(info);
                     Walk(cls, plain);
                 }
             }
@@ -249,11 +255,21 @@ public sealed class AmlModel
             string? resolved = null, problem = null;
             var loaded = false;
             var outside = false;
+
+            // A remote library is not downloaded. A local copy under the same file name is
+            // used instead, and the address is shown without any credentials in it.
+            var remote = Uri.TryCreate(relative, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https");
+            var shown = relative;
+            if (remote)
+            {
+                shown = uri!.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped);
+                relative = Uri.UnescapeDataString(uri.Segments.LastOrDefault() ?? "");
+            }
             try
             {
-                if (Uri.TryCreate(relative, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https"))
+                if (relative.Length == 0)
                 {
-                    problem = "remote reference, not downloaded";
+                    problem = "empty path";
                 }
                 else if (inContainer && FindContainerEntry(relative, baseLocation) is { } partPath)
                 {
@@ -294,7 +310,9 @@ public sealed class AmlModel
                     }
                     else
                     {
-                        problem = inContainer ? "not in the container and not next to it on disk" : "file not found next to the document";
+                        problem = remote
+                            ? "remote library, not downloaded, and no local copy next to the document"
+                            : inContainer ? "not in the container and not next to it on disk" : "file not found next to the document";
                     }
                 }
             }
@@ -304,9 +322,9 @@ public sealed class AmlModel
             }
 
             if (topLevel)
-                ExternalRefs.Add(new ExternalRef(alias, relative, resolved, loaded, problem, outside));
-            else if (!loaded && NestedLibraryProblems.All(r => r.Path != relative))
-                NestedLibraryProblems.Add(new ExternalRef(alias, relative, resolved, loaded, problem, outside));
+                ExternalRefs.Add(new ExternalRef(alias, shown, resolved, loaded, problem, outside, remote));
+            else if (!loaded && NestedLibraryProblems.All(r => r.Path != shown))
+                NestedLibraryProblems.Add(new ExternalRef(alias, shown, resolved, loaded, problem, outside, remote));
         }
     }
 
@@ -607,14 +625,14 @@ public sealed class AmlModel
     }
 
     /// <summary>The class and all its base classes, most specific first.</summary>
-    public IEnumerable<ClassInfo> ClassChain(string? reference)
+    public IEnumerable<ClassInfo> ClassChain(string? reference, XElement? context = null)
     {
-        var info = ResolveClass(reference);
+        var info = ResolveClass(reference, context);
         var seen = new HashSet<XElement>();
         while (info is not null && seen.Add(info.Element))
         {
             yield return info;
-            info = ResolveClass((string?)info.Element.Attribute("RefBaseClassPath"));
+            info = ResolveClass((string?)info.Element.Attribute("RefBaseClassPath"), info.Element);
         }
     }
 
@@ -648,21 +666,71 @@ public sealed class AmlModel
     public ClassInfo? ClassByName(string name) =>
         Classes.Values.FirstOrDefault(c => string.Equals(ShortClass(c.PlainPath), name, StringComparison.OrdinalIgnoreCase));
 
-    public ClassInfo? ResolveClass(string? reference)
+    public ClassInfo? ResolveClass(string? reference) => ResolveClass(reference, null);
+
+    /// <summary>
+    /// Resolves a class reference. CAEX 2.15 documents, the official AutomationML examples
+    /// among them, often name a base class without its library; such a name is resolved
+    /// when it is unique, or unique within the library of the referencing class.
+    /// </summary>
+    public ClassInfo? ResolveClass(string? reference, XElement? context)
+    {
+        var resolved = ResolveClassPath(reference);
+        if (resolved is not null || string.IsNullOrWhiteSpace(reference)) return resolved;
+
+        var (_, name, segments) = SplitClassPath(reference.Trim());
+        if (segments > 1 || !_byName.TryGetValue(name, out var candidates)) return null;
+        if (candidates.Count == 1) return candidates[0];
+        var library = context?.AncestorsAndSelf().FirstOrDefault(a => LibraryKinds.Contains(a.Name.LocalName));
+        var local = library is null ? new List<ClassInfo>() : candidates.Where(c => c.Library == NameOf(library)).ToList();
+        return local.Count == 1 ? local[0] : null;
+    }
+
+    private ClassInfo? ResolveClassPath(string? reference)
     {
         if (string.IsNullOrWhiteSpace(reference)) return null;
         if (Classes.TryGetValue(reference, out var exact)) return exact;
 
-        var at = reference.IndexOf('@');
-        if (at > 0)
+        var (alias, plain, _) = SplitClassPath(reference.Trim());
+        if (alias is not null)
         {
-            var alias = reference[..at];
+            if (Classes.TryGetValue(alias + "@" + plain, out var aliased)) return aliased;
             if (ExternalRefs.Any(r => !r.Loaded && string.Equals(r.Alias, alias, StringComparison.OrdinalIgnoreCase)))
                 return null;
         }
-
-        var plain = at >= 0 ? reference[(at + 1)..] : reference;
         return _plainIndex.TryGetValue(plain, out var tolerant) ? tolerant : null;
+    }
+
+    /// <summary>
+    /// Splits a class path into alias and plain path. A segment in square brackets is a
+    /// name that may itself contain '/' or '@', as in [ATL_http://opcfoundation.org/UA/]/[NodeId].
+    /// </summary>
+    public static (string? Alias, string Plain, int Segments) SplitClassPath(string reference)
+    {
+        var segments = new List<string>();
+        string? alias = null;
+        var current = new System.Text.StringBuilder();
+        var depth = 0;
+        foreach (var ch in reference)
+        {
+            if (ch == '[' && depth++ == 0) continue;
+            if (ch == ']' && depth > 0 && --depth == 0) continue;
+            if (depth == 0 && ch == '@' && alias is null && segments.Count == 0)
+            {
+                alias = current.ToString();
+                current.Clear();
+                continue;
+            }
+            if (depth == 0 && ch == '/')
+            {
+                segments.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+            current.Append(ch);
+        }
+        segments.Add(current.ToString());
+        return (alias, string.Join("/", segments), segments.Count);
     }
 
     /// <summary>Resolves an element by ID (with or without braces), by path, or by unique name.</summary>
@@ -770,6 +838,16 @@ public sealed class AmlModel
 
     public static string? HierarchyNameOf(XElement? e) =>
         e is null ? null : NameOf(e.AncestorsAndSelf(C + "InstanceHierarchy").FirstOrDefault());
+
+    /// <summary>PathOf for instance elements, the library path for classes.</summary>
+    public static string DisplayPathOf(XElement e)
+    {
+        var path = PathOf(e);
+        if (path.Length > 0) return path;
+        return string.Join("/", e.AncestorsAndSelf()
+            .Where(a => LibraryKinds.Contains(a.Name.LocalName) || ClassKinds.Contains(a.Name.LocalName))
+            .Reverse().Select(a => NameOf(a)));
+    }
 
     public static string PathOf(XElement e) =>
         string.Join("/", e.AncestorsAndSelf()

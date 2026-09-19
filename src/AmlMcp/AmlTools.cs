@@ -597,7 +597,7 @@ public static class AmlTools
             .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
             .Where(x => !string.IsNullOrWhiteSpace(x.Value))
             .Where(x => !IsMirrorSlot(x.Element, x.Attribute))
-            .Where(x => m.ResolveClass(x.Value) is null)
+            .Where(x => m.ResolveClass(x.Value, x.Element) is null)
             .GroupBy(x => x.Value!).ToList();
 
         // Class paths that fail only because their library file is missing are
@@ -605,15 +605,30 @@ public static class AmlTools
         var missingAliases = m.ExternalRefs.Where(r => !r.Loaded).Select(r => r.Alias).ToHashSet();
         foreach (var r in m.ExternalRefs.Where(r => !r.Loaded))
         {
-            problems++;
             var affected = unresolvedClasses.Where(g => g.Key.StartsWith(r.Alias + "@", StringComparison.Ordinal)).ToList();
+            if (r.Remote)
+            {
+                sb.AppendLine($"  note: remote library not downloaded: {r.Alias} -> {r.Path}");
+                if (affected.Count > 0)
+                    sb.AppendLine($"    {affected.Count} class path(s) used {affected.Sum(g => g.Count())}x from it are not checked; put a copy next to the document to check them");
+                continue;
+            }
+            problems++;
             sb.AppendLine($"  external library not loaded: {r.Alias} -> {r.Path} ({r.Problem})");
             if (affected.Count > 0)
                 sb.AppendLine($"    consequence: {affected.Count} class path(s) used {affected.Sum(g => g.Count())}x cannot be resolved, e.g. {affected[0].Key}");
         }
 
+        foreach (var r in m.ExternalRefs.Where(r => r.Loaded && r.Remote))
+            sb.AppendLine($"  note: remote library {r.Alias} -> {r.Path} was read from the local copy {r.ResolvedFile}");
+
         foreach (var r in m.NestedLibraryProblems)
         {
+            if (r.Remote)
+            {
+                sb.AppendLine($"  note: an external library refers to a remote library that was not downloaded: {r.Alias} -> {r.Path}");
+                continue;
+            }
             problems++;
             sb.AppendLine($"  library of an external library not loaded: {r.Alias} -> {r.Path} ({r.Problem})");
         }
@@ -625,7 +640,7 @@ public static class AmlTools
         foreach (var g in unresolvedClasses.Where(g => !missingAliases.Any(a => g.Key.StartsWith(a + "@", StringComparison.Ordinal))))
         {
             problems++;
-            sb.AppendLine($"  unresolved class path: {g.Key}  (used {g.Count()}x, e.g. by {PathOf(g.First().Element)})");
+            sb.AppendLine($"  unresolved class path: {g.Key}  (used {g.Count()}x, e.g. by {DisplayPathOf(g.First().Element)})");
         }
 
         foreach (var dm in m.DanglingMirrors)
