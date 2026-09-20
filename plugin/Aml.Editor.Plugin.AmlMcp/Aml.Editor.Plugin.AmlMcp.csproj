@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AssemblyName>Aml.Editor.Plugin.AmlMcp</AssemblyName>
+    <RootNamespace>Aml.Editor.Plugin.AmlMcp</RootNamespace>
+    <Description>Makes the AutomationML document in the editor readable for AI assistants: ships the aml-mcp server, registers it with the assistant, and checks the connection from inside the editor.</Description>
+    <PackageTags>AMLEditor; AMLEditorPlugin.Net; AutomationML; CAEX; MCP; LLM</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/hsu-aut/AMLMcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/hsu-aut/AMLMcp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <BaseOutputPath>$(MSBuildThisFileDirectory)..\..\build\Plugins\$(MSBuildProjectName)</BaseOutputPath>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aml.Editor.Plugin.Contract" Version="4.3.0">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
+    <!-- The editor brings this at run time; keeping it out of the package means
+         installing the plugin downloads nothing else. -->
+    <PackageReference Include="Aml.Engine" Version="4.5.2">
+      <ExcludeAssets>runtime</ExcludeAssets>
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Metadata.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(OutputPath)$(AssemblyName).deps.json" Pack="true" PackagePath="lib\$(TargetFramework)" />
+    <!-- The server itself, built by publish-server.ps1 into runtime\. -->
+    <None Include="runtime\aml-mcp.exe" CopyToOutputDirectory="PreserveNewest" Condition="Exists('runtime\aml-mcp.exe')"
+          Pack="true" PackagePath="lib\$(TargetFramework)\runtime\aml-mcp.exe" />
+  </ItemGroup>
+
+</Project>

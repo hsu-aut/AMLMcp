@@ -21,6 +21,7 @@ macOS.
 | `test/AmlMcp.Tests/` | 113 tests |
 | `test/smoke.py` | Protocol level test, speaks MCP over stdio |
 | `examples/` | Four small documents to try it on |
+| `plugin/` | AutomationML Editor panel that ships the server and registers it with an assistant (Windows) |
 
 ## Build
 
@@ -60,6 +61,19 @@ Other clients take the same command in their configuration file:
   }
 }
 ```
+
+## AutomationML Editor
+
+The panel in `plugin/` carries the server, registers it with Claude Desktop in one click, and tests the
+connection against the document that is open in the editor. Build it on Windows with the .NET 10 SDK:
+
+```powershell
+plugin\publish-server.ps1
+dotnet build plugin\AmlMcp.Editor.sln -c Release
+```
+
+Then add `build\Plugins\Aml.Editor.Plugin.AmlMcp\Release` as a source in the PlugIn Manager of the
+editor and install "AmlMcp" from there. The editor is not needed for anything else here.
 
 ## Tools
 
