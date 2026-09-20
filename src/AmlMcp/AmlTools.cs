@@ -44,7 +44,8 @@ public static class AmlTools
 
     [McpServerTool(Name = "get_tree", ReadOnly = true, Idempotent = true)]
     [Description("Shows the containment tree below an instance hierarchy or element, with class, ID, mirror objects and a " +
-                 "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy.")]
+                 "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy. " +
+                 "AutomationML, CAEX, InstanceHierarchy, InternalElement, structure, children.")]
     public static CallToolResult GetTree(
         DocumentStore store,
         [Description("Hierarchy name, element ID, path (Hierarchy/Parent/Child) or unique element name. Omit for all hierarchies.")] string? element = null,
@@ -121,7 +122,8 @@ public static class AmlTools
     [McpServerTool(Name = "find_elements", ReadOnly = true, Idempotent = true)]
     [Description("Searches internal elements by text in name, description, ID, class or role, optionally restricted " +
                  "to a class, a role or one instance hierarchy. Class and role filters follow inheritance: filtering " +
-                 "for a base class also finds instances of its subclasses. Returns path, class and ID per hit.")]
+                 "for a base class also finds instances of its subclasses. Returns path, class and ID per hit. " +
+                 "AutomationML, CAEX, search, lookup, find by name, by ID, by class, by role.")]
     public static CallToolResult FindElements(
 
         DocumentStore store,
@@ -141,7 +143,8 @@ public static class AmlTools
     [Description("Returns a compact card for one element: path, hierarchy, class (resolved against the libraries), roles, " +
                  "description, own attributes, attributes inherited from the class chain, interfaces, children, and all " +
                  "connections: InternalLinks, references and mirror relations in both directions, each with the partner's " +
-                 "path, hierarchy and ID. Diagram layout attributes are hidden unless requested.")]
+                 "path, hierarchy and ID. Diagram layout attributes are hidden unless requested. " +
+                 "AutomationML, CAEX, element details, attributes, ExternalInterface, InternalLink, refObj, mirror, ID lookup.")]
     public static CallToolResult GetElement(
 
         DocumentStore store,
@@ -156,7 +159,8 @@ public static class AmlTools
     [McpServerTool(Name = "get_neighbors", ReadOnly = true, Idempotent = true)]
     [Description("Follows connections from an element up to a given depth: InternalLinks, references (refObj family " +
                  "and similar) and mirror relations in both directions, and optionally parent/child containment. Use " +
-                 "crossHierarchyOnly to see how e.g. a process view, a behaviour view and a plant structure are tied together.")]
+                 "crossHierarchyOnly to see how e.g. a process view, a behaviour view and a plant structure are tied together. " +
+                 "AutomationML, CAEX, trace connections, linked elements, arcs, places, transitions, neighbours.")]
     public static CallToolResult GetNeighbors(
         DocumentStore store,
         [Description("Element ID, path or unique name.")] string element,
@@ -218,7 +222,8 @@ public static class AmlTools
 
     [McpServerTool(Name = "find_path", ReadOnly = true, Idempotent = true)]
     [Description("Finds the shortest chain of connections between two elements (links, references, mirror relations and, " +
-                 "unless disabled, containment). Answers questions like 'how is this Petri net transition related to that process operator'.")]
+                 "unless disabled, containment). Answers questions like 'how is this Petri net transition related to that process operator'. " +
+                 "AutomationML, CAEX, trace, route, shortest path, how are two elements connected.")]
     public static CallToolResult FindPath(
 
         DocumentStore store,
@@ -237,7 +242,8 @@ public static class AmlTools
     [Description("Looks up a class from the role, system unit, interface or attribute type libraries (embedded or " +
                  "referenced externally): description, inheritance chain, own and inherited attributes with defaults, " +
                  "interfaces, supported roles, subclasses, and how many elements in the document use it. Accepts a full " +
-                 "path or a class name; a name shared by a role and a system unit class returns both.")]
+                 "path or a class name; a name shared by a role and a system unit class returns both. " +
+                 "AutomationML, CAEX, SystemUnitClass, RoleClass, InterfaceClass, AttributeType, library, inheritance.")]
     public static CallToolResult GetClass(
 
         DocumentStore store,
@@ -253,7 +259,7 @@ public static class AmlTools
 
     [McpServerTool(Name = "list_classes", ReadOnly = true, Idempotent = true)]
     [Description("Lists classes from all libraries available to the document, optionally filtered by library, kind " +
-                 "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text.")]
+                 "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text. AutomationML, CAEX, libraries, classes, browse.")]
     public static CallToolResult ListClasses(
         DocumentStore store,
         [Description("Only classes whose library name contains this text.")] string? library = null,
@@ -300,7 +306,8 @@ public static class AmlTools
     [McpServerTool(Name = "check_references", ReadOnly = true, Idempotent = true)]
     [Description("Checks the document's referential integrity: class paths that do not resolve against embedded or " +
                  "external libraries, InternalLinks with missing partners, dangling references, mirror objects whose " +
-                 "master is missing, duplicate IDs, external libraries that could not be loaded, and interfaces shared by several links.")]
+                 "master is missing, duplicate IDs, external libraries that could not be loaded, and interfaces shared by several links. " +
+                 "AutomationML, CAEX, validate, consistency, integrity, broken links.")]
     public static CallToolResult CheckReferences(
 
         DocumentStore store,

@@ -69,6 +69,12 @@ static string Instructions(ServerOptions options)
         text.AppendLine("The user has an AutomationML editor open. Call open_aml_document WITHOUT a path to read the document they are looking at right now; the other tools then work on it as well. Do not ask for a file path or an upload first.");
     else
         text.AppendLine("Call open_aml_document with the path of a file first; the other tools then work on it.");
+    // Clients that load tools on demand search by name and description. Naming the tools
+    // here keeps a failed search from looking like a server without those tools.
+    text.AppendLine("Tools: open_aml_document (overview), get_tree (structure), find_elements (search), " +
+                    "get_element (one element with its attributes, interfaces and every link), get_neighbors " +
+                    "(follow links and references), find_path (how two elements are connected), get_class, " +
+                    "list_classes, check_references. Ask for them by name if your client loads tools on demand.");
     if (options.Roots.Count > 0)
         text.AppendLine($"Readable directories: {options.RootsDescription}.");
     return text.ToString();
