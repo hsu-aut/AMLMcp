@@ -59,9 +59,11 @@ public sealed class DocumentStore
         {
             string? key = string.IsNullOrWhiteSpace(path) ? Current() : FullPath(path);
             if (key is null)
-                throw new McpException(_options.FollowFile is null
-                    ? "No AutomationML document is open. Call open_aml_document with the path of an .aml or .amlx file."
-                    : "No document is open in the editor, and none was named. Open a file in the AutomationML editor, or call open_aml_document with a path.");
+                throw new McpException(FollowedProblem is { } why
+                    ? $"No document to work on: {why}."
+                    : _options.FollowFile is null
+                        ? "No AutomationML document is open. Call open_aml_document with the path of an .aml or .amlx file."
+                        : "No document is open in the editor, and none was named. Open a file in the AutomationML editor, or call open_aml_document with a path.");
 
             if (!_documents.TryGetValue(key, out var model))
                 return Open(key);
@@ -92,8 +94,12 @@ public sealed class DocumentStore
         return _current ?? pointed;
     }
 
+    /// <summary>The document an editor points at, and why it cannot be used when it cannot.</summary>
+    public string? FollowedProblem { get; private set; }
+
     private string? Followed()
     {
+        FollowedProblem = null;
         if (_options.FollowFile is not { } file) return null;
         try
         {
@@ -101,7 +107,17 @@ public sealed class DocumentStore
             var text = File.ReadAllText(file).Trim().Trim('"');
             if (text.Length == 0) return null;
             var full = Path.GetFullPath(text);
-            return File.Exists(full) && _options.Allows(full) ? full : null;
+            if (!File.Exists(full))
+            {
+                FollowedProblem = $"the editor points at '{full}', which does not exist";
+                return null;
+            }
+            if (!_options.Allows(full))
+            {
+                FollowedProblem = $"the editor has '{full}' open, which is outside the directories this server may read ({_options.RootsDescription})";
+                return null;
+            }
+            return full;
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException or PathTooLongException or UnauthorizedAccessException)
         {

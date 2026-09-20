@@ -694,10 +694,11 @@ public sealed class FollowTheEditorTests : IDisposable
         var pointer = _ws.Write("open-document.txt", secret);
         var store = StoreFollowing(pointer);
 
-        Assert.Contains("No document is open in the editor", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
+        Assert.Contains("outside the directories this server may read",
+            Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
 
         File.WriteAllText(pointer, "this is not a path");
-        Assert.Contains("No document is open in the editor", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
+        Assert.Contains("which does not exist", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
     }
 
     [Fact]
@@ -736,5 +737,31 @@ public sealed class OpenWithoutAPathTests : IDisposable
         var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
 
         Assert.Contains("call open_aml_document with the path", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+public sealed class FollowedDocumentOutsideTheRootTests : IDisposable
+{
+    private readonly Workspace _inside = new();
+    private readonly Workspace _outside = new();
+
+    public void Dispose()
+    {
+        _inside.Dispose();
+        _outside.Dispose();
+    }
+
+    [Fact]
+    public void The_refusal_names_the_file_and_the_fence()
+    {
+        var elsewhere = _outside.Write("plant.aml", Fixtures.Caex215);
+        var pointer = _inside.Write("open-document.txt", elsewhere);
+        var store = new DocumentStore(ServerOptions.Parse(new[] { "--root", _inside.Dir, "--follow", pointer }));
+
+        var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
+
+        Assert.Contains("the editor has", ex.Message);
+        Assert.Contains(elsewhere, ex.Message);
+        Assert.Contains("outside the directories this server may read", ex.Message);
     }
 }
