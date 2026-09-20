@@ -10,7 +10,8 @@ using System.Text.Json.Serialization.Metadata;
 namespace Aml.Editor.Plugin.AmlMcp;
 
 /// <summary>What one run found: a line for the panel, and the full answers behind it.</summary>
-internal sealed record ProbeResult(bool Ok, string Headline, string Facts, string Verdict, string Details);
+internal sealed record ProbeResult(bool Ok, string Headline, string Facts, string Verdict, string Details,
+    IReadOnlyList<string> Questions);
 
 internal sealed class McpProbe : IDisposable
 {
@@ -107,7 +108,7 @@ internal sealed class McpProbe : IDisposable
         if (string.IsNullOrWhiteSpace(documentPath))
         {
             return new ProbeResult(false, "No document open", $"{tools?.Count ?? 0} tools ready",
-                "Open an AutomationML file in the editor, then test again.", details.ToString());
+                "Open an AutomationML file in the editor, then test again.", details.ToString(), []);
         }
 
         var (openText, openData) = Call("open_aml_document", new JsonObject { ["path"] = documentPath }, timeout);
@@ -115,6 +116,8 @@ internal sealed class McpProbe : IDisposable
 
         var (checkText, checkData) = Call("check_references", new JsonObject(), timeout);
         details.AppendLine().AppendLine("--- check_references").AppendLine(checkText);
+
+        var (_, treeData) = Call("get_tree", new JsonObject { ["depth"] = 4 }, timeout);
         started.Stop();
 
         var hierarchies = openData?["hierarchies"]?.AsArray();
@@ -136,8 +139,63 @@ internal sealed class McpProbe : IDisposable
                       + (notes > 0 ? $"   ·   {notes} note(s)" : "")
                       + string.Format(System.Globalization.CultureInfo.InvariantCulture, "   ·   read in {0:0.0} s", started.Elapsed.TotalSeconds);
 
-        return new ProbeResult(problems == 0, Path.GetFileName(documentPath), facts, verdict, details.ToString());
+        return new ProbeResult(problems == 0, Path.GetFileName(documentPath), facts, verdict, details.ToString(),
+            Questions(Path.GetFileName(documentPath), hierarchies, treeData, problems));
     }
+
+    /// <summary>
+    /// Questions about this very document: the views it actually has, and the element that
+    /// ties the most of them together. A generic question makes for a poor demonstration.
+    /// </summary>
+    private static List<string> Questions(string fileName, JsonArray? hierarchies, JsonNode? tree, int problems)
+    {
+        var views = (hierarchies ?? []).Select(h => h?["name"]?.ToString()).Where(n => !string.IsNullOrEmpty(n)).ToList();
+        var questions = new List<string>();
+
+        questions.Add(views.Count switch
+        {
+            0 or 1 => $"Open {fileName} and tell me what is modelled in it.",
+            <= 3 => $"Open {fileName} and explain how {Join(views)} belong together.",
+            _ => $"Open {fileName}: it has {views.Count} views, {Join(views.Take(2).ToList())} among them. How do they belong together?",
+        });
+
+        var hotspot = Hotspot(tree?["nodes"]?.AsArray());
+        if (hotspot is not null)
+            questions.Add($"In {fileName}: what is {hotspot} connected to in the other views? Name the IDs so I can check.");
+        else if (views.Count > 0)
+            questions.Add($"In {fileName}: list the elements in {views[0]} and what each of them is linked to.");
+
+        questions.Add(problems > 0
+            ? $"Check {fileName} for broken references and explain what is missing."
+            : $"Check {fileName}: does every class path resolve, and is every link complete?");
+
+        return questions;
+    }
+
+    /// <summary>The element with the most connections into other hierarchies.</summary>
+    private static string? Hotspot(JsonArray? nodes)
+    {
+        string? best = null;
+        var most = 0;
+        void Walk(JsonNode? node)
+        {
+            if (node is null) return;
+            var crossing = node["crossHierarchyConnections"]?.GetValue<int>() ?? 0;
+            if (crossing > most)
+            {
+                most = crossing;
+                best = node["name"]?.ToString();
+            }
+            foreach (var child in node["children"]?.AsArray() ?? []) Walk(child);
+        }
+        foreach (var node in nodes ?? []) Walk(node);
+        return best;
+    }
+
+    private static string Join(List<string?> names) =>
+        names.Count <= 2
+            ? string.Join(" and ", names)
+            : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
 
     private (string Text, JsonNode? Data) Call(string tool, JsonNode arguments, TimeSpan timeout)
     {

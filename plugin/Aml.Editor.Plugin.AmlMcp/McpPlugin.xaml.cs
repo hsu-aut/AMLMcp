@@ -22,7 +22,7 @@ public partial class McpPlugin : PluginViewBase
         IsReactive = false;
 
         RootBox.TextChanged += (_, _) => _rootEdited = true;
-        ShowQuestions(null);
+        ShowDefaultQuestions(null);
 
         // The editor only reports a change; a document opened before this panel existed
         // has to be looked up once.
@@ -60,7 +60,7 @@ public partial class McpPlugin : PluginViewBase
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         _documentPath = path;
-        ShowQuestions(path);
+        ShowDefaultQuestions(path);
         if (_rootEdited) return;
         RootBox.Text = Path.GetDirectoryName(path) ?? "";
         _rootEdited = false;
@@ -95,12 +95,22 @@ public partial class McpPlugin : PluginViewBase
         StatusText.Text = text;
     }
 
-    private void ShowQuestions(string? documentPath)
+    private void ShowDefaultQuestions(string? documentPath)
     {
         var name = string.IsNullOrWhiteSpace(documentPath) ? "the document" : Path.GetFileName(documentPath);
-        Question1.Text = $"Open {name} and tell me what is in it.";
-        Question2.Text = "Which instance hierarchies exist, and how are they connected to each other?";
-        Question3.Text = "Pick one element and show me everything it is linked to, with IDs.";
+        ShowQuestions(new[]
+        {
+            $"Open {name} and tell me what is modelled in it.",
+            $"In {name}: which views are there, and what ties them together?",
+            "Read the document here first, then the questions fit what is actually in it.",
+        });
+    }
+
+    private void ShowQuestions(IReadOnlyList<string> questions)
+    {
+        var boxes = new[] { Question1, Question2, Question3 };
+        for (var i = 0; i < boxes.Length; i++)
+            boxes[i].Text = i < questions.Count ? questions[i] : "";
     }
 
     private void OnTest(object sender, RoutedEventArgs e)
@@ -122,7 +132,7 @@ public partial class McpPlugin : PluginViewBase
             }
             catch (Exception ex)
             {
-                result = new ProbeResult(false, "The server did not answer", "", ex.Message, ex.ToString());
+                result = new ProbeResult(false, "The server did not answer", "", ex.Message, ex.ToString(), []);
             }
             Dispatcher.Invoke(() =>
             {
@@ -132,6 +142,7 @@ public partial class McpPlugin : PluginViewBase
                 ResultVerdict.Text = result.Verdict;
                 ResultVerdict.Foreground = result.Ok ? Good : Bad;
                 Details.Text = result.Details;
+                if (result.Questions.Count > 0) ShowQuestions(result.Questions);
                 Status(result.Ok, result.Ok
                     ? $"the assistant can read {result.Headline}"
                     : "see the result below");
