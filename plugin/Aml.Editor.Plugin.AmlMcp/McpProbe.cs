@@ -2,11 +2,15 @@
 // reports what came back. Enough to prove the connection from inside the editor.
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Aml.Editor.Plugin.AmlMcp;
+
+/// <summary>What one run found: a line for the panel, and the full answers behind it.</summary>
+internal sealed record ProbeResult(bool Ok, string Headline, string Facts, string Verdict, string Details);
 
 internal sealed class McpProbe : IDisposable
 {
@@ -79,10 +83,13 @@ internal sealed class McpProbe : IDisposable
         _process.StandardInput.Flush();
     }
 
-    /// <summary>Opens the document and returns what the server answered, line by line.</summary>
-    public IEnumerable<string> Run(string? documentPath)
+    /// <summary>Connects, opens the document and checks it.</summary>
+    public ProbeResult Run(string? documentPath)
     {
         var timeout = TimeSpan.FromSeconds(30);
+        var details = new StringBuilder();
+        var started = Stopwatch.StartNew();
+
         var initialize = Request("initialize", new JsonObject
         {
             ["protocolVersion"] = "2024-11-05",
@@ -92,30 +99,55 @@ internal sealed class McpProbe : IDisposable
         Notify("notifications/initialized");
 
         var server = initialize?["serverInfo"];
-        yield return $"connected to {server?["name"]} {server?["version"]}";
-
         var tools = Request("tools/list", null, timeout)?["tools"]?.AsArray();
-        yield return $"{tools?.Count ?? 0} tools: {string.Join(", ", tools?.Select(t => t?["name"]?.ToString()) ?? [])}";
+        var toolNames = string.Join(", ", (tools?.Select(t => t?["name"]?.ToString()) ?? []).OrderBy(n => n));
+        details.AppendLine($"server: {server?["name"]} {server?["version"]}");
+        details.AppendLine($"tools: {toolNames}");
 
         if (string.IsNullOrWhiteSpace(documentPath))
         {
-            yield return "";
-            yield return "No document is open in the editor, so nothing was read.";
-            yield break;
+            return new ProbeResult(false, "No document open", $"{tools?.Count ?? 0} tools ready",
+                "Open an AutomationML file in the editor, then test again.", details.ToString());
         }
 
-        foreach (var line in Call("open_aml_document", new JsonObject { ["path"] = documentPath }, timeout)) yield return line;
-        foreach (var line in Call("check_references", new JsonObject(), timeout)) yield return line;
+        var (openText, openData) = Call("open_aml_document", new JsonObject { ["path"] = documentPath }, timeout);
+        details.AppendLine().AppendLine("--- open_aml_document").AppendLine(openText);
+
+        var (checkText, checkData) = Call("check_references", new JsonObject(), timeout);
+        details.AppendLine().AppendLine("--- check_references").AppendLine(checkText);
+        started.Stop();
+
+        var hierarchies = openData?["hierarchies"]?.AsArray();
+        var elements = hierarchies?.Sum(h => h?["elements"]?.GetValue<int>() ?? 0) ?? 0;
+        var problems = checkData?["problems"]?.AsArray()?.Count ?? 0;
+        var notes = checkData?["notes"]?.AsArray()?.Count ?? 0;
+
+        var facts = string.Join("   ·   ", new[]
+        {
+            $"CAEX {openData?["schemaVersion"]}",
+            Size(openData?["sizeBytes"]?.GetValue<long>() ?? 0),
+            $"{hierarchies?.Count ?? 0} hierarchies",
+            $"{elements} elements",
+            $"{openData?["links"]} links",
+            $"{openData?["references"]} references",
+        });
+
+        var verdict = (problems == 0 ? "no problems found" : $"{problems} problem(s) found")
+                      + (notes > 0 ? $"   ·   {notes} note(s)" : "")
+                      + string.Format(System.Globalization.CultureInfo.InvariantCulture, "   ·   read in {0:0.0} s", started.Elapsed.TotalSeconds);
+
+        return new ProbeResult(problems == 0, Path.GetFileName(documentPath), facts, verdict, details.ToString());
     }
 
-    private IEnumerable<string> Call(string tool, JsonNode arguments, TimeSpan timeout)
+    private (string Text, JsonNode? Data) Call(string tool, JsonNode arguments, TimeSpan timeout)
     {
-        yield return "";
-        yield return $"--- {tool}";
         var result = Request("tools/call", new JsonObject { ["name"] = tool, ["arguments"] = arguments }, timeout);
         var text = result?["content"]?.AsArray().FirstOrDefault()?["text"]?.ToString() ?? "(no answer)";
-        foreach (var line in text.Split('\n')) yield return line.TrimEnd('\r');
+        return (text, result?["structuredContent"]);
     }
+
+    private static string Size(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / 1024.0 / 1024.0:0.#} MB" : $"{bytes / 1024.0:0} KB";
 
     public static string? Version(string exePath)
     {

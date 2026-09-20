@@ -3,30 +3,59 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:wpf="clr-namespace:Aml.Editor.Plugin.WPFBase;assembly=Aml.Editor.Plugin.Contract">
   <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="12">
+    <StackPanel Margin="16">
 
-      <TextBlock Text="Ask an assistant about this document" FontSize="16" FontWeight="SemiBold" />
-      <TextBlock TextWrapping="Wrap" Margin="0,6,0,12" Foreground="#555"
-                 Text="The aml-mcp server gives an AI assistant read access to AutomationML files: hierarchies, class libraries, links, mirror objects and references. It runs on this machine and only reads." />
+      <TextBlock Text="Ask an assistant about this document" FontSize="18" FontWeight="SemiBold" />
+      <TextBlock TextWrapping="Wrap" Margin="0,4,0,14" Foreground="#666" FontSize="12"
+                 Text="aml-mcp gives an AI assistant read access to AutomationML files: hierarchies, class libraries, links, mirror objects and references. It runs on this machine and only reads." />
 
-      <TextBlock Text="Server" FontWeight="SemiBold" />
-      <TextBlock x:Name="ServerLine" TextWrapping="Wrap" Margin="0,2,0,10" />
+      <!-- status -->
+      <Border Background="#F2F7F2" BorderBrush="#CFE3CF" BorderThickness="1" CornerRadius="3" Padding="10,8">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock x:Name="StatusDot" Text="●" FontSize="14" Foreground="#2E7D32" Margin="0,0,8,0" />
+          <TextBlock x:Name="StatusText" FontSize="13" VerticalAlignment="Center" Text="checking ..." />
+        </StackPanel>
+      </Border>
 
-      <TextBlock Text="Readable directory" FontWeight="SemiBold" />
-      <TextBlock TextWrapping="Wrap" Margin="0,2,0,2" Foreground="#555"
+      <!-- what the assistant may read -->
+      <TextBlock Text="Readable directory" FontWeight="SemiBold" Margin="0,16,0,2" />
+      <TextBlock TextWrapping="Wrap" Margin="0,0,0,4" Foreground="#666" FontSize="12"
                  Text="The assistant may read this directory and everything below it, nothing else." />
-      <TextBox x:Name="RootBox" Margin="0,0,0,12" />
+      <TextBox x:Name="RootBox" Padding="4,3" />
 
-      <WrapPanel>
-        <Button x:Name="TestButton" Content="Test with the open document" Padding="10,4" Margin="0,0,8,8" Click="OnTest" />
-        <Button x:Name="ClaudeButton" Content="Register with Claude Desktop" Padding="10,4" Margin="0,0,8,8" Click="OnRegisterClaudeDesktop" />
-        <Button x:Name="CopyButton" Content="Copy configuration" Padding="10,4" Margin="0,0,8,8" Click="OnCopyConfiguration" />
+      <WrapPanel Margin="0,14,0,0">
+        <Button x:Name="TestButton" Content="Read the open document" Padding="14,6" Margin="0,0,8,8" FontWeight="SemiBold" Click="OnTest" />
+        <Button x:Name="ClaudeButton" Content="Register with Claude Desktop" Padding="14,6" Margin="0,0,8,8" Click="OnRegisterClaudeDesktop" />
+        <Button x:Name="CopyButton" Content="Copy configuration" Padding="14,6" Margin="0,0,8,8" Click="OnCopyConfiguration" />
       </WrapPanel>
 
-      <TextBox x:Name="Output" Margin="0,8,0,0" MinHeight="180" IsReadOnly="True"
-               FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap"
-               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-               Background="#F7F7F7" />
+      <!-- result of the last run -->
+      <Border x:Name="ResultBox" Visibility="Collapsed" Margin="0,8,0,0"
+              Background="#FAFAFA" BorderBrush="#DDD" BorderThickness="1" CornerRadius="3" Padding="14,12">
+        <StackPanel>
+          <TextBlock x:Name="ResultHeadline" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <TextBlock x:Name="ResultFacts" FontSize="13" Margin="0,6,0,0" Foreground="#333" TextWrapping="Wrap" />
+          <TextBlock x:Name="ResultVerdict" FontSize="13" Margin="0,4,0,0" Foreground="#2E7D32" TextWrapping="Wrap" />
+          <Expander x:Name="DetailsExpander" Header="Answers in full" Margin="0,10,0,0" FontSize="12">
+            <TextBox x:Name="Details" MinHeight="160" MaxHeight="320" IsReadOnly="True" BorderThickness="0"
+                     FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" Background="Transparent"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Margin="0,6,0,0" />
+          </Expander>
+        </StackPanel>
+      </Border>
+
+      <!-- what to ask -->
+      <TextBlock Text="Questions to try in the assistant" FontWeight="SemiBold" Margin="0,18,0,4" />
+      <Border Background="#FAFAFA" BorderBrush="#DDD" BorderThickness="1" CornerRadius="3" Padding="12,10">
+        <StackPanel>
+          <TextBox x:Name="Question1" IsReadOnly="True" BorderThickness="0" Background="Transparent" TextWrapping="Wrap" Margin="0,0,0,6" />
+          <TextBox x:Name="Question2" IsReadOnly="True" BorderThickness="0" Background="Transparent" TextWrapping="Wrap" Margin="0,0,0,6" />
+          <TextBox x:Name="Question3" IsReadOnly="True" BorderThickness="0" Background="Transparent" TextWrapping="Wrap" />
+          <Button x:Name="CopyQuestionsButton" Content="Copy questions" Padding="10,3" Margin="0,10,0,0" HorizontalAlignment="Left" Click="OnCopyQuestions" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock x:Name="ServerLine" FontSize="11" Foreground="#888" TextWrapping="Wrap" Margin="0,14,0,0" />
 
     </StackPanel>
   </ScrollViewer>

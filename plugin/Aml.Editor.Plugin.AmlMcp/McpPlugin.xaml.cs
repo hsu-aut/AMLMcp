@@ -1,13 +1,17 @@
-// Registers the aml-mcp server with an AI assistant and checks the connection,
+// Registers the aml-mcp server with an AI assistant and reads the open document,
 // without leaving the AutomationML Editor.
 using System.IO;
 using System.Windows;
+using System.Windows.Media;
 using Aml.Editor.Plugin.WPFBase;
 
 namespace Aml.Editor.Plugin.AmlMcp;
 
 public partial class McpPlugin : PluginViewBase
 {
+    private static readonly Brush Good = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+    private static readonly Brush Bad = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+
     private string? _documentPath;
     private bool _rootEdited;
 
@@ -18,9 +22,21 @@ public partial class McpPlugin : PluginViewBase
         IsReactive = false;
 
         RootBox.TextChanged += (_, _) => _rootEdited = true;
-        ServerLine.Text = ServerPath() is { } exe
-            ? $"{exe}\nversion {McpProbe.Version(exe) ?? "unknown"}"
-            : "aml-mcp.exe was not found next to the plugin. Build it with publish-server.ps1.";
+        ShowQuestions(null);
+
+        if (ServerPath() is { } exe)
+        {
+            var version = McpProbe.Version(exe);
+            Status(version is not null, version is not null
+                ? $"aml-mcp {version} is ready on this machine"
+                : "aml-mcp was found but did not answer");
+            ServerLine.Text = exe;
+        }
+        else
+        {
+            Status(false, "aml-mcp.exe was not found next to the plugin");
+            ServerLine.Text = "Build it with plugin\\publish-server.ps1 and install the plugin again.";
+        }
     }
 
     public override string PackageName => "Aml.Editor.Plugin.AmlMcp";
@@ -31,6 +47,7 @@ public partial class McpPlugin : PluginViewBase
     {
         base.ChangeAMLFilePath(amlFilePath);
         _documentPath = amlFilePath;
+        ShowQuestions(amlFilePath);
         if (_rootEdited || string.IsNullOrWhiteSpace(amlFilePath)) return;
         RootBox.Text = Path.GetDirectoryName(amlFilePath) ?? "";
         _rootEdited = false;
@@ -42,36 +59,59 @@ public partial class McpPlugin : PluginViewBase
         var beside = Path.Combine(AppContext.BaseDirectory, "runtime", "aml-mcp.exe");
         if (File.Exists(beside)) return beside;
 
-        var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "src", "AmlMcp", "bin", "Release", "net10.0", "aml-mcp.exe"));
+        var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "..", "..", "..", "..", "src", "AmlMcp", "bin", "Release", "net10.0", "aml-mcp.exe"));
         return File.Exists(repository) ? repository : null;
     }
 
     private string Root() => RootBox.Text.Trim();
 
+    private void Status(bool ok, string text)
+    {
+        StatusDot.Foreground = ok ? Good : Bad;
+        StatusText.Text = text;
+    }
+
+    private void ShowQuestions(string? documentPath)
+    {
+        var name = string.IsNullOrWhiteSpace(documentPath) ? "the document" : Path.GetFileName(documentPath);
+        Question1.Text = $"Open {name} and tell me what is in it.";
+        Question2.Text = "Which instance hierarchies exist, and how are they connected to each other?";
+        Question3.Text = "Pick one element and show me everything it is linked to, with IDs.";
+    }
+
     private void OnTest(object sender, RoutedEventArgs e)
     {
-        if (ServerPath() is not { } exe) { Output.Text = ServerLine.Text; return; }
+        if (ServerPath() is not { } exe) return;
 
         TestButton.IsEnabled = false;
-        Output.Text = "starting the server ...";
+        Status(true, "reading ...");
         var root = Root();
         var document = _documentPath;
 
         Task.Run(() =>
         {
-            var lines = new List<string>();
+            ProbeResult result;
             try
             {
                 using var probe = new McpProbe(exe, root);
-                lines.AddRange(probe.Run(document));
+                result = probe.Run(document);
             }
             catch (Exception ex)
             {
-                lines.Add($"failed: {ex.Message}");
+                result = new ProbeResult(false, "The server did not answer", "", ex.Message, ex.ToString());
             }
             Dispatcher.Invoke(() =>
             {
-                Output.Text = string.Join(Environment.NewLine, lines);
+                ResultBox.Visibility = Visibility.Visible;
+                ResultHeadline.Text = result.Headline;
+                ResultFacts.Text = result.Facts;
+                ResultVerdict.Text = result.Verdict;
+                ResultVerdict.Foreground = result.Ok ? Good : Bad;
+                Details.Text = result.Details;
+                Status(result.Ok, result.Ok
+                    ? $"the assistant can read {result.Headline}"
+                    : "see the result below");
                 TestButton.IsEnabled = true;
             });
         });
@@ -79,23 +119,41 @@ public partial class McpPlugin : PluginViewBase
 
     private void OnRegisterClaudeDesktop(object sender, RoutedEventArgs e)
     {
-        if (ServerPath() is not { } exe) { Output.Text = ServerLine.Text; return; }
+        if (ServerPath() is not { } exe) return;
         try
         {
             var path = McpProbe.RegisterWithClaudeDesktop(exe, Root());
-            Output.Text = $"written to {path}\n\nRestart Claude Desktop, then ask it about a file in {Root()}.";
+            Status(true, "registered with Claude Desktop, restart it to pick the server up");
+            ResultBox.Visibility = Visibility.Visible;
+            ResultHeadline.Text = "Claude Desktop";
+            ResultFacts.Text = path;
+            ResultVerdict.Text = $"The assistant may now read {Root()}";
+            ResultVerdict.Foreground = Good;
+            Details.Text = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
         }
         catch (Exception ex)
         {
-            Output.Text = $"failed: {ex.Message}";
+            Status(false, ex.Message);
         }
     }
 
     private void OnCopyConfiguration(object sender, RoutedEventArgs e)
     {
-        if (ServerPath() is not { } exe) { Output.Text = ServerLine.Text; return; }
+        if (ServerPath() is not { } exe) return;
         var json = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
         Clipboard.SetText(json);
-        Output.Text = "copied to the clipboard:\n\n" + json;
+        Status(true, "configuration copied, paste it into your assistant's settings");
+        ResultBox.Visibility = Visibility.Visible;
+        ResultHeadline.Text = "Configuration";
+        ResultFacts.Text = "in the clipboard";
+        ResultVerdict.Text = "";
+        Details.Text = json;
+        DetailsExpander.IsExpanded = true;
+    }
+
+    private void OnCopyQuestions(object sender, RoutedEventArgs e)
+    {
+        Clipboard.SetText(string.Join(Environment.NewLine, Question1.Text, Question2.Text, Question3.Text));
+        Status(true, "questions copied");
     }
 }
