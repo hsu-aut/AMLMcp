@@ -8,7 +8,7 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <AssemblyName>Aml.Editor.Plugin.AmlMcp</AssemblyName>
     <RootNamespace>Aml.Editor.Plugin.AmlMcp</RootNamespace>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <Description>Makes the AutomationML document in the editor readable for AI assistants: ships the aml-mcp server, registers it with the assistant, and checks the connection from inside the editor.</Description>
     <PackageTags>AMLEditor; AMLEditorPlugin.Net; AutomationML; CAEX; MCP; LLM</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

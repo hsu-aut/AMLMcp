@@ -694,10 +694,10 @@ public sealed class FollowTheEditorTests : IDisposable
         var pointer = _ws.Write("open-document.txt", secret);
         var store = StoreFollowing(pointer);
 
-        Assert.Contains("No AutomationML document is open", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
+        Assert.Contains("No document is open in the editor", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
 
         File.WriteAllText(pointer, "this is not a path");
-        Assert.Contains("No AutomationML document is open", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
+        Assert.Contains("No document is open in the editor", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
     }
 
     [Fact]
@@ -705,5 +705,36 @@ public sealed class FollowTheEditorTests : IDisposable
     {
         Assert.Contains("--follow needs a file", Assert.Throws<ArgumentException>(() => ServerOptions.Parse(new[] { "--follow" })).Message);
         Assert.Equal(Path.GetFullPath("pointer.txt"), ServerOptions.Parse(new[] { "--follow", "pointer.txt" }).FollowFile);
+    }
+}
+
+/// <summary>The client may ask for the overview without naming a file at all.</summary>
+public sealed class OpenWithoutAPathTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void Omitting_the_path_reads_the_document_the_editor_points_at()
+    {
+        var plant = _ws.Write("plant.aml", Fixtures.Caex215);
+        var pointer = _ws.Write("open-document.txt", plant);
+        var store = new DocumentStore(ServerOptions.Parse(new[] { "--root", _ws.Dir, "--follow", pointer }));
+
+        var text = Answer.Text(AmlTools.OpenAmlDocument(store));
+
+        Assert.Contains("Document: plant.aml", text);
+        Assert.Contains("CAEX 2.15", text);
+    }
+
+    [Fact]
+    public void Without_a_pointer_the_refusal_says_what_to_do()
+    {
+        var store = new DocumentStore();
+
+        var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
+
+        Assert.Contains("call open_aml_document with the path", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

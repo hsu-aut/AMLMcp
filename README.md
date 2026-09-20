@@ -80,7 +80,7 @@ editor and install "AmlMcp" from there. The editor is not needed for anything el
 
 | Tool | Answers |
 |---|---|
-| `open_aml_document` | What is in this file: container parts, external libraries and whether they resolve, class libraries, hierarchies with element counts, and how the hierarchies are connected |
+| `open_aml_document` | What is in this file: container parts, external libraries and whether they resolve, class libraries, hierarchies with element counts, and how the hierarchies are connected. Without a path it reads the document the editor has open |
 | `get_tree` | The containment tree of a hierarchy or element |
 | `find_elements` | Elements by text, class or role; class and role filters follow inheritance |
 | `get_element` | One element: class, roles, own and inherited attributes, interfaces, children, and every link, reference and mirror relation in both directions |

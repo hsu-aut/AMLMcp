@@ -30,14 +30,15 @@ public static class AmlTools
                  "for containers the root document and all packaged parts with their roles, external library references " +
                  "and whether they resolve, class libraries, instance hierarchies with element counts by class, and " +
                  "how the hierarchies are connected (InternalLinks, references and mirror objects across hierarchies). " +
-                 "Call this first. The document stays open for the other tools and is reloaded automatically when the file changes.")]
+                 "Call this first. The document stays open for the other tools and is reloaded automatically when the file changes. " +
+                 "Omit the path to read the document the user currently has open in their AutomationML editor.")]
     public static CallToolResult OpenAmlDocument(
 
         DocumentStore store,
-        [Description("Absolute or relative path to the .aml file.")] string path)
+        [Description("Absolute or relative path to the .aml file. Omit it to use the document open in the editor.")] string? path = null)
     {
         // One model for both halves; the store may have moved on under a concurrent call.
-        var m = store.Open(path);
+        var m = string.IsNullOrWhiteSpace(path) ? store.Get(null) : store.Open(path);
         return Answer(OpenDocumentText(m), Structured.Document(m));
     }
 

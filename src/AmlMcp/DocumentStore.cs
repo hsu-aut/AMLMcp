@@ -59,7 +59,9 @@ public sealed class DocumentStore
         {
             string? key = string.IsNullOrWhiteSpace(path) ? Current() : FullPath(path);
             if (key is null)
-                throw new McpException("No AutomationML document is open. Call open_aml_document first.");
+                throw new McpException(_options.FollowFile is null
+                    ? "No AutomationML document is open. Call open_aml_document with the path of an .aml or .amlx file."
+                    : "No document is open in the editor, and none was named. Open a file in the AutomationML editor, or call open_aml_document with a path.");
 
             if (!_documents.TryGetValue(key, out var model))
                 return Open(key);

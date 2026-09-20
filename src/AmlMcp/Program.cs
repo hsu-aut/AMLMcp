@@ -52,7 +52,7 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<DocumentStore>();
 builder.Services
-    .AddMcpServer()
+    .AddMcpServer(server => server.ServerInstructions = Instructions(options))
     .WithStdioServerTransport()
     .WithToolsFromAssembly()
     .WithResourcesFromAssembly()
@@ -60,3 +60,16 @@ builder.Services
 
 await builder.Build().RunAsync();
 return 0;
+
+static string Instructions(ServerOptions options)
+{
+    var text = new System.Text.StringBuilder();
+    text.AppendLine("Reads AutomationML documents (CAEX 3.0, CAEX 2.15, AMLX). Every answer names element IDs and paths, so state them when you report a fact.");
+    if (options.FollowFile is not null)
+        text.AppendLine("The user has an AutomationML editor open. Call open_aml_document WITHOUT a path to read the document they are looking at right now; the other tools then work on it as well. Do not ask for a file path or an upload first.");
+    else
+        text.AppendLine("Call open_aml_document with the path of a file first; the other tools then work on it.");
+    if (options.Roots.Count > 0)
+        text.AppendLine($"Readable directories: {options.RootsDescription}.");
+    return text.ToString();
+}
