@@ -60,6 +60,9 @@ public partial class McpPlugin : PluginViewBase
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         _documentPath = path;
+        // The running server reads this file, so an assistant answers about the document
+        // the editor shows, without being given a path and without being restarted.
+        McpProbe.PointAt(path);
         ShowDefaultQuestions(path);
         if (_rootEdited) return;
         RootBox.Text = Path.GetDirectoryName(path) ?? "";
@@ -161,7 +164,7 @@ public partial class McpPlugin : PluginViewBase
             ResultBox.Visibility = Visibility.Visible;
             ResultHeadline.Text = "Claude Desktop";
             ResultFacts.Text = path;
-            ResultVerdict.Text = $"The assistant may now read {Root()}";
+            ResultVerdict.Text = $"The assistant may now read {Root()} and follows the document you open here";
             ResultVerdict.Foreground = Good;
             Details.Text = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
         }

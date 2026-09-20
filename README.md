@@ -64,8 +64,9 @@ Other clients take the same command in their configuration file:
 
 ## AutomationML Editor
 
-The panel in `plugin/` carries the server, registers it with Claude Desktop in one click, and tests the
-connection against the document that is open in the editor. Build it on Windows with the .NET 10 SDK:
+The panel in `plugin/` carries the server, registers it with Claude Desktop in one click, and reads the
+document that is open in the editor. It also keeps `--follow` up to date, so the assistant answers about
+whatever document you open in the editor, without naming a path and without a restart. Build it on Windows with the .NET 10 SDK:
 
 ```powershell
 plugin\publish-server.ps1
@@ -98,6 +99,7 @@ Each tool returns text for the model and `structuredContent` for programs; the r
 | Option | Effect |
 |---|---|
 | `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS` |
+| `--follow <file>` | Answer about the document whose path this file holds, as long as the client names none. The editor panel keeps it up to date, so switching documents needs no restart. Environment: `AML_MCP_FOLLOW` |
 | `--strict-conventions` | Interpret only what CAEX and the shared libraries define, without the attribute name conventions of older libraries. Environment: `AML_MCP_STRICT=1` |
 | `--help`, `--version` | Print usage or version |
 

@@ -13,6 +13,7 @@ public sealed class DocumentStore
     private readonly object _gate = new();
     private readonly ServerOptions _options;
     private string? _current;
+    private string? _followed;
 
     public DocumentStore() : this(ServerOptions.Default) { }
 
@@ -44,6 +45,9 @@ public sealed class DocumentStore
             }
             _documents[full] = model;
             _current = full;
+            // What the editor points at right now counts as seen, so an unchanged pointer
+            // does not override the document the client just asked for.
+            _followed = Followed();
             return model;
         }
     }
@@ -53,7 +57,7 @@ public sealed class DocumentStore
     {
         lock (_gate)
         {
-            string? key = string.IsNullOrWhiteSpace(path) ? _current : FullPath(path);
+            string? key = string.IsNullOrWhiteSpace(path) ? Current() : FullPath(path);
             if (key is null)
                 throw new McpException("No AutomationML document is open. Call open_aml_document first.");
 
@@ -68,6 +72,38 @@ public sealed class DocumentStore
 
             _current = key;
             return model;
+        }
+    }
+
+    /// <summary>
+    /// The document to answer about when the client names none: what an editor last put into
+    /// the file given with --follow, otherwise the one opened last through this server.
+    /// </summary>
+    private string? Current()
+    {
+        var pointed = Followed();
+        if (pointed is not null && !string.Equals(pointed, _followed, StringComparison.OrdinalIgnoreCase))
+        {
+            _followed = pointed;
+            return pointed;
+        }
+        return _current ?? pointed;
+    }
+
+    private string? Followed()
+    {
+        if (_options.FollowFile is not { } file) return null;
+        try
+        {
+            if (!File.Exists(file)) return null;
+            var text = File.ReadAllText(file).Trim().Trim('"');
+            if (text.Length == 0) return null;
+            var full = Path.GetFullPath(text);
+            return File.Exists(full) && _options.Allows(full) ? full : null;
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException or PathTooLongException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

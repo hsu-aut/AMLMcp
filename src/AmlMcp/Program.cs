@@ -11,6 +11,9 @@ if (args.Contains("--help") || args.Contains("-h"))
         Usage: aml-mcp [options]
           --root <dir>            Restrict reading to this directory (repeatable).
                                   Environment: AML_MCP_ROOTS, separated by the platform path separator.
+          --follow <file>         Answer about the document whose path this file contains, as long as
+                                  the client names none. An editor plugin keeps the file up to date.
+                                  Environment: AML_MCP_FOLLOW
           --strict-conventions    Interpret only what CAEX and the shared AutomationML libraries define,
                                   without the attribute name conventions of older libraries.
                                   Environment: AML_MCP_STRICT=1

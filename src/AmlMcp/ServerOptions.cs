@@ -16,7 +16,7 @@ namespace AmlMcp;
 /// such as an attribute called ViewInformation holding geometry.
 /// </para>
 /// </summary>
-public sealed record ServerOptions(IReadOnlyList<string> Roots, bool StrictConventions)
+public sealed record ServerOptions(IReadOnlyList<string> Roots, bool StrictConventions, string? FollowFile = null)
 {
     public static ServerOptions Default { get; } = new(Array.Empty<string>(), false);
 
@@ -24,6 +24,7 @@ public sealed record ServerOptions(IReadOnlyList<string> Roots, bool StrictConve
     {
         var roots = new List<string>();
         var strict = Environment.GetEnvironmentVariable("AML_MCP_STRICT") is "1" or "true";
+        var follow = Environment.GetEnvironmentVariable("AML_MCP_FOLLOW");
 
         var fromEnvironment = Environment.GetEnvironmentVariable("AML_MCP_ROOTS");
         if (!string.IsNullOrWhiteSpace(fromEnvironment))
@@ -42,6 +43,12 @@ public sealed record ServerOptions(IReadOnlyList<string> Roots, bool StrictConve
                 case "--strict-conventions":
                     strict = true;
                     break;
+                // A file that holds the path of the document an editor currently shows.
+                case "--follow" when i + 1 < args.Count && !args[i + 1].StartsWith("--", StringComparison.Ordinal):
+                    follow = args[++i];
+                    break;
+                case "--follow":
+                    throw new ArgumentException("--follow needs a file.");
                 case "--help" or "-h" or "--version":
                     break;
                 default:
@@ -56,7 +63,8 @@ public sealed record ServerOptions(IReadOnlyList<string> Roots, bool StrictConve
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return new ServerOptions(normalized, strict);
+        return new ServerOptions(normalized, strict,
+            string.IsNullOrWhiteSpace(follow) ? null : Path.GetFullPath(follow.Trim().Trim('"')));
     }
 
     /// <summary>True when the path lies inside one of the configured roots, or when no root is configured.</summary>

@@ -632,3 +632,78 @@ public sealed class RemoteLibraryTests : IDisposable
         Assert.Contains("was read from the local copy", AmlTools.CheckText(_store));
     }
 }
+
+/// <summary>With --follow the server answers about the document an editor currently shows.</summary>
+public sealed class FollowTheEditorTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+
+    public void Dispose() => _ws.Dispose();
+
+    private DocumentStore StoreFollowing(string pointer, bool restricted = true)
+    {
+        var arguments = restricted
+            ? new[] { "--root", _ws.Dir, "--follow", pointer }
+            : new[] { "--follow", pointer };
+        return new DocumentStore(ServerOptions.Parse(arguments));
+    }
+
+    [Fact]
+    public void Without_an_open_document_the_pointed_at_file_is_used()
+    {
+        var plant = _ws.Write("plant.aml", Fixtures.Caex215);
+        var pointer = _ws.Write("open-document.txt", plant);
+        var store = StoreFollowing(pointer);
+
+        Assert.Contains("Plant/Pump", AmlTools.ElementCard(store, "Pump"));
+    }
+
+    [Fact]
+    public void A_document_the_editor_switches_to_is_picked_up_without_a_restart()
+    {
+        var first = _ws.Write("first.aml", Fixtures.Caex215);
+        var second = _ws.Write("second.aml", Fixtures.Rich30);
+        var pointer = _ws.Write("open-document.txt", first);
+        var store = StoreFollowing(pointer);
+
+        Assert.Contains("Reference check for first.aml", AmlTools.CheckText(store));
+
+        File.WriteAllText(pointer, second);
+
+        Assert.Contains("Reference check for second.aml", AmlTools.CheckText(store));
+    }
+
+    [Fact]
+    public void A_document_the_client_opened_itself_still_wins_until_the_editor_moves_on()
+    {
+        var followed = _ws.Write("followed.aml", Fixtures.Caex215);
+        var chosen = _ws.Write("chosen.aml", Fixtures.Rich30);
+        var pointer = _ws.Write("open-document.txt", followed);
+        var store = StoreFollowing(pointer);
+
+        AmlTools.OpenDocumentText(store, chosen);
+
+        Assert.Contains("Reference check for chosen.aml", AmlTools.CheckText(store));
+    }
+
+    [Fact]
+    public void A_pointer_outside_the_roots_or_a_broken_one_is_ignored()
+    {
+        using var outside = new Workspace();
+        var secret = outside.Write("secret.aml", Fixtures.Caex215);
+        var pointer = _ws.Write("open-document.txt", secret);
+        var store = StoreFollowing(pointer);
+
+        Assert.Contains("No AutomationML document is open", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
+
+        File.WriteAllText(pointer, "this is not a path");
+        Assert.Contains("No AutomationML document is open", Assert.Throws<McpException>(() => AmlTools.CheckText(store)).Message);
+    }
+
+    [Fact]
+    public void The_option_needs_a_file()
+    {
+        Assert.Contains("--follow needs a file", Assert.Throws<ArgumentException>(() => ServerOptions.Parse(new[] { "--follow" })).Message);
+        Assert.Equal(Path.GetFullPath("pointer.txt"), ServerOptions.Parse(new[] { "--follow", "pointer.txt" }).FollowFile);
+    }
+}

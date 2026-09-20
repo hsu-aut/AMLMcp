@@ -22,6 +22,21 @@ internal sealed class McpProbe : IDisposable
         TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
     };
 
+    /// <summary>The file the server reads with --follow: it holds the document the editor shows.</summary>
+    public static string PointerFile { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AmlMcp", "open-document.txt");
+
+    public static void PointAt(string? documentPath)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(PointerFile)!);
+            File.WriteAllText(PointerFile, documentPath ?? "");
+        }
+        catch (IOException) { /* the panel works without it, the path just has to be named */ }
+        catch (UnauthorizedAccessException) { }
+    }
+
     private readonly Process _process;
     private int _id;
 
@@ -40,6 +55,8 @@ internal sealed class McpProbe : IDisposable
             info.ArgumentList.Add("--root");
             info.ArgumentList.Add(root);
         }
+        info.ArgumentList.Add("--follow");
+        info.ArgumentList.Add(PointerFile);
         _process = Process.Start(info) ?? throw new InvalidOperationException($"{exePath} did not start.");
     }
 
@@ -154,20 +171,20 @@ internal sealed class McpProbe : IDisposable
 
         questions.Add(views.Count switch
         {
-            0 or 1 => $"Open {fileName} and tell me what is modelled in it.",
-            <= 3 => $"Open {fileName} and explain how {Join(views)} belong together.",
-            _ => $"Open {fileName}: it has {views.Count} views, {Join(views.Take(2).ToList())} among them. How do they belong together?",
+            0 or 1 => "Tell me what is modelled in the document I have open in the editor.",
+            <= 3 => $"In the document open in the editor: explain how {Join(views)} belong together.",
+            _ => $"The document open in the editor has {views.Count} views, {Join(views.Take(2).ToList())} among them. How do they belong together?",
         });
 
         var hotspot = Hotspot(tree?["nodes"]?.AsArray());
         if (hotspot is not null)
-            questions.Add($"In {fileName}: what is {hotspot} connected to in the other views? Name the IDs so I can check.");
+            questions.Add($"In the document open in the editor: what is {hotspot} connected to in the other views? Name the IDs so I can check.");
         else if (views.Count > 0)
             questions.Add($"In {fileName}: list the elements in {views[0]} and what each of them is linked to.");
 
         questions.Add(problems > 0
-            ? $"Check {fileName} for broken references and explain what is missing."
-            : $"Check {fileName}: does every class path resolve, and is every link complete?");
+            ? "Check the open document for broken references and explain what is missing."
+            : "Check the open document: does every class path resolve, and is every link complete?");
 
         return questions;
     }
@@ -196,6 +213,13 @@ internal sealed class McpProbe : IDisposable
         names.Count <= 2
             ? string.Join(" and ", names)
             : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+
+    /// <summary>Which document the server answers about when none is named.</summary>
+    public string AskWithoutNamingADocument()
+    {
+        var (_, data) = Call("check_references", new JsonObject(), TimeSpan.FromSeconds(30));
+        return data?["document"]?.ToString() ?? "(unknown)";
+    }
 
     private (string Text, JsonNode? Data) Call(string tool, JsonNode arguments, TimeSpan timeout)
     {
@@ -237,6 +261,8 @@ internal sealed class McpProbe : IDisposable
             args.Add("--root");
             args.Add(root);
         }
+        args.Add("--follow");
+        args.Add(PointerFile);
         return new JsonObject
         {
             ["mcpServers"] = new JsonObject
