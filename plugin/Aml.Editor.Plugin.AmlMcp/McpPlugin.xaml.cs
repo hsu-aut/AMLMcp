@@ -24,6 +24,13 @@ public partial class McpPlugin : PluginViewBase
         RootBox.TextChanged += (_, _) => _rootEdited = true;
         ShowQuestions(null);
 
+        // The editor only reports a change; a document opened before this panel existed
+        // has to be looked up once.
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_documentPath is null && EditorDocument.CurrentPath() is { } open) UseDocument(open);
+        }), System.Windows.Threading.DispatcherPriority.Background);
+
         if (ServerPath() is { } exe)
         {
             var version = McpProbe.Version(exe);
@@ -46,21 +53,37 @@ public partial class McpPlugin : PluginViewBase
     public override void ChangeAMLFilePath(string amlFilePath)
     {
         base.ChangeAMLFilePath(amlFilePath);
-        _documentPath = amlFilePath;
-        ShowQuestions(amlFilePath);
-        if (_rootEdited || string.IsNullOrWhiteSpace(amlFilePath)) return;
-        RootBox.Text = Path.GetDirectoryName(amlFilePath) ?? "";
+        UseDocument(amlFilePath);
+    }
+
+    private void UseDocument(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        _documentPath = path;
+        ShowQuestions(path);
+        if (_rootEdited) return;
+        RootBox.Text = Path.GetDirectoryName(path) ?? "";
         _rootEdited = false;
+    }
+
+    private void OnBrowse(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Directory the assistant may read" };
+        if (Directory.Exists(Root())) dialog.InitialDirectory = Root();
+        if (dialog.ShowDialog() == true) RootBox.Text = dialog.FolderName;
     }
 
     /// <summary>The server shipped with the plugin, or a local build while developing.</summary>
     private static string? ServerPath()
     {
-        var beside = Path.Combine(AppContext.BaseDirectory, "runtime", "aml-mcp.exe");
+        // AppContext.BaseDirectory is the editor's folder here, not the plugin's.
+        var here = Path.GetDirectoryName(typeof(McpPlugin).Assembly.Location);
+        if (string.IsNullOrEmpty(here)) return null;
+
+        var beside = Path.Combine(here, "runtime", "aml-mcp.exe");
         if (File.Exists(beside)) return beside;
 
-        var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "..", "..", "..", "..", "src", "AmlMcp", "bin", "Release", "net10.0", "aml-mcp.exe"));
+        var repository = Path.GetFullPath(Path.Combine(here, "..", "..", "..", "..", "src", "AmlMcp", "bin", "Release", "net10.0", "aml-mcp.exe"));
         return File.Exists(repository) ? repository : null;
     }
 
