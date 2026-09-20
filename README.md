@@ -18,7 +18,7 @@ macOS.
 | Path | Content |
 |---|---|
 | `src/AmlMcp/` | The server, `aml-mcp` |
-| `test/AmlMcp.Tests/` | 113 tests |
+| `test/AmlMcp.Tests/` | The test suite |
 | `test/smoke.py` | Protocol level test, speaks MCP over stdio |
 | `examples/` | Four small documents to try it on |
 | `plugin/` | AutomationML Editor panel that ships the server and registers it with an assistant (Windows) |
