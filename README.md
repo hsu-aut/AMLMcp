@@ -9,7 +9,9 @@ and AMLX documents without loading the XML into its context.
 - Every answer names IDs and paths, so a client can check each statement in the model
 
 It knows CAEX, not any particular domain library, so it works the same on a plant structure, a
-process description, a behaviour model, or all three in one document.
+process description, a behaviour model, or all three in one document. It is a program of its own,
+not an AutomationML Editor plugin: no editor has to be installed, and it runs on Windows, Linux and
+macOS.
 
 ## Repository
 
