@@ -77,7 +77,8 @@ dotnet build plugin\AmlMcp.Editor.sln -c Release
 ```
 
 Then add `build\Plugins\Aml.Editor.Plugin.AmlMcp\Release` as a source in the PlugIn Manager of the
-editor and install "AmlMcp" from there. The editor is not needed for anything else here.
+editor and install "AmlMcp" from there. Published releases carry the same package, and once it is on
+nuget.org the PlugIn Manager finds it by itself. The editor is not needed for anything else here.
 
 ## Tools
 

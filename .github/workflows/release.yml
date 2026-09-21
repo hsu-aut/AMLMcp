@@ -98,6 +98,38 @@ jobs:
           name: editor-plugin
           path: build/Plugins/**/*.nupkg
 
+  plugin-nuget:
+    # The AutomationML Editor finds plugins on nuget.org by the tag AMLEditorPlugin.Net, so this
+    # is how an editor user installs it. Trusted publishing: no key is stored here. Switched on
+    # with the repository variable PUBLISH_PLUGIN_TO_NUGET once the policy exists on nuget.org.
+    name: nuget.org (editor plugin)
+    needs: plugin
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_PLUGIN_TO_NUGET == 'true'
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    environment: nuget.org
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: editor-plugin
+          path: plugin-package
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Log in to nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Push the plugin
+        run: >
+          dotnet nuget push "plugin-package/**/*.nupkg"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
   nuget:
     # Trusted publishing: GitHub proves the workflow's identity (OIDC) and nuget.org hands out
     # a short-lived key, so no API key is stored here. A version on nuget.org cannot be
