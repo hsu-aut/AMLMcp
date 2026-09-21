@@ -33,9 +33,11 @@ dotnet build src/AmlMcp -c Release
 dotnet test AmlMcp.sln
 ```
 
-The executable is `src/AmlMcp/bin/Release/net10.0/aml-mcp` (`.exe` on Windows). With the first release
-it is also a NuGet tool, `dotnet tool install --global AutomationML.McpServer`, and a self contained
-binary for Windows, Linux and macOS.
+The executable is `src/AmlMcp/bin/Release/net10.0/aml-mcp` (`.exe` on Windows).
+
+Ready made instead of built: every [release](https://github.com/hsu-aut/AMLMcp/releases) carries a self
+contained binary for Windows, Linux and macOS, and the editor panel. As a NuGet tool
+(`dotnet tool install --global AutomationML.McpServer`) it follows once the package is published.
 
 ## Connect a client
 
