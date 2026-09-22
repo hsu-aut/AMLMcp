@@ -25,7 +25,7 @@ public static class AmlTools
         StructuredContent = data is null ? null : System.Text.Json.JsonSerializer.SerializeToElement(data, Json.Options),
     };
 
-    [McpServerTool(Name = "open_aml_document", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "open_aml_document", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Opens an AutomationML document (.aml with CAEX 3.0 or 2.15, or an .amlx container) and returns an overview: " +
                  "for containers the root document and all packaged parts with their roles, external library references " +
                  "and whether they resolve, class libraries, instance hierarchies with element counts by class, and " +
@@ -42,7 +42,7 @@ public static class AmlTools
         return Answer(OpenDocumentText(m), Structured.Document(m));
     }
 
-    [McpServerTool(Name = "get_tree", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "get_tree", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Shows the containment tree below an instance hierarchy or element, with class, ID, mirror objects and a " +
                  "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy. " +
                  "AutomationML, CAEX, InstanceHierarchy, InternalElement, structure, children.")]
@@ -119,7 +119,7 @@ public static class AmlTools
 
     // ------------------------------------------------------------------ search
 
-    [McpServerTool(Name = "find_elements", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "find_elements", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Searches internal elements by text in name, description, ID, class or role, optionally restricted " +
                  "to a class, a role or one instance hierarchy. Class and role filters follow inheritance: filtering " +
                  "for a base class also finds instances of its subclasses. Returns path, class and ID per hit. " +
@@ -139,7 +139,7 @@ public static class AmlTools
             Structured.Search(m, query, classContains, roleContains, hierarchy, Math.Clamp(limit, 1, 200)));
     }
 
-    [McpServerTool(Name = "get_element", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "get_element", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Returns a compact card for one element: path, hierarchy, class (resolved against the libraries), roles, " +
                  "description, own attributes, attributes inherited from the class chain, interfaces, children, and all " +
                  "connections: InternalLinks, references and mirror relations in both directions, each with the partner's " +
@@ -156,7 +156,7 @@ public static class AmlTools
         return Answer(ElementCard(m, element, includeLayout), Structured.Element(m, m.ResolveElement(element), includeLayout));
     }
 
-    [McpServerTool(Name = "get_neighbors", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "get_neighbors", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Follows connections from an element up to a given depth: InternalLinks, references (refObj family " +
                  "and similar) and mirror relations in both directions, and optionally parent/child containment. Use " +
                  "crossHierarchyOnly to see how e.g. a process view, a behaviour view and a plant structure are tied together. " +
@@ -220,7 +220,7 @@ public static class AmlTools
 
     // ------------------------------------------------------------------ path
 
-    [McpServerTool(Name = "find_path", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "find_path", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Finds the shortest chain of connections between two elements (links, references, mirror relations and, " +
                  "unless disabled, containment). Answers questions like 'how is this Petri net transition related to that process operator'. " +
                  "AutomationML, CAEX, trace, route, shortest path, how are two elements connected.")]
@@ -238,7 +238,7 @@ public static class AmlTools
             Structured.PathBetween(m, m.ResolveElement(from), m.ResolveElement(to), includeContainment, Math.Clamp(maxSteps, 1, 20)));
     }
 
-    [McpServerTool(Name = "get_class", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "get_class", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Looks up a class from the role, system unit, interface or attribute type libraries (embedded or " +
                  "referenced externally): description, inheritance chain, own and inherited attributes with defaults, " +
                  "interfaces, supported roles, subclasses, and how many elements in the document use it. Accepts a full " +
@@ -257,7 +257,7 @@ public static class AmlTools
             new ClassMatchesInfo(matches.Count, matches.Select(c => Structured.Class(m, c)).ToList()));
     }
 
-    [McpServerTool(Name = "list_classes", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "list_classes", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Lists classes from all libraries available to the document, optionally filtered by library, kind " +
                  "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text. AutomationML, CAEX, libraries, classes, browse.")]
     public static CallToolResult ListClasses(
@@ -303,7 +303,7 @@ public static class AmlTools
 
     // ------------------------------------------------------------------ checks
 
-    [McpServerTool(Name = "check_references", ReadOnly = true, Idempotent = true)]
+    [McpServerTool(Name = "check_references", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Checks the document's referential integrity: class paths that do not resolve against embedded or " +
                  "external libraries, InternalLinks with missing partners, dangling references, mirror objects whose " +
                  "master is missing, duplicate IDs, external libraries that could not be loaded, and interfaces shared by several links. " +

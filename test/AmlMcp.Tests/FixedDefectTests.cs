@@ -765,3 +765,29 @@ public sealed class FollowedDocumentOutsideTheRootTests : IDisposable
         Assert.Contains("outside the directories this server may read", ex.Message);
     }
 }
+
+/// <summary>
+/// Every tool states all four hints. Without them a client has to assume the defaults of the
+/// specification, which are destructive and open world, and would warn about a server that reads.
+/// </summary>
+public sealed class ToolAnnotationTests
+{
+    [Fact]
+    public void All_tools_declare_that_they_only_read_a_local_document()
+    {
+        var tools = typeof(AmlTools).GetMethods()
+            .Select(m => m.GetCustomAttributes(typeof(ModelContextProtocol.Server.McpServerToolAttribute), false)
+                .Cast<ModelContextProtocol.Server.McpServerToolAttribute>().FirstOrDefault())
+            .Where(a => a is not null)
+            .ToList();
+
+        Assert.Equal(9, tools.Count);
+        Assert.All(tools, tool =>
+        {
+            Assert.True(tool!.ReadOnly);
+            Assert.True(tool.Idempotent);
+            Assert.False(tool.Destructive);
+            Assert.False(tool.OpenWorld);
+        });
+    }
+}
