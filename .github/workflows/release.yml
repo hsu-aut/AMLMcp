@@ -88,9 +88,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Pack the server into the plugin
-        run: ./plugin/publish-server.ps1
-        shell: pwsh
+      # Building the plugin publishes the server into it.
       - name: Build the plugin
         run: dotnet build plugin/AmlMcp.Editor.sln -c Release --nologo
       - uses: actions/upload-artifact@v4

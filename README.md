@@ -68,11 +68,12 @@ Other clients take the same command in their configuration file:
 ## AutomationML Editor
 
 The panel in `plugin/` carries the server, registers it with Claude Desktop in one click, and reads the
-document that is open in the editor. It also keeps `--follow` up to date, so the assistant answers about
-whatever document you open in the editor, without naming a path and without a restart. Build it on Windows with the .NET 10 SDK:
+document that is open in the editor. It keeps `--follow` up to date, so the assistant answers about
+whatever document you open there, and it watches `--select`, so the assistant can expand and highlight
+an element in the tree. Build it on Windows with the .NET 10 SDK; the server is published into the
+plugin as part of that build:
 
 ```powershell
-plugin\publish-server.ps1
 dotnet build plugin\AmlMcp.Editor.sln -c Release
 ```
 

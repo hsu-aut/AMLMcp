@@ -8,7 +8,7 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <AssemblyName>Aml.Editor.Plugin.AmlMcp</AssemblyName>
     <RootNamespace>Aml.Editor.Plugin.AmlMcp</RootNamespace>
-    <Description>Makes the AutomationML document in the editor readable for AI assistants: ships the aml-mcp server, registers it with the assistant, and checks the connection from inside the editor.</Description>
+    <Description>Makes the AutomationML document in the editor readable for AI assistants: ships the aml-mcp server, registers it with the assistant, and lets the assistant select elements in the editor.</Description>
     <PackageTags>AMLEditor; AMLEditorPlugin.Net; AutomationML; CAEX; MCP; LLM</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/hsu-aut/AMLMcp</PackageProjectUrl>
@@ -24,7 +24,7 @@
     <PackageReference Include="Aml.Editor.Plugin.Contract" Version="4.3.0">
       <PrivateAssets>All</PrivateAssets>
     </PackageReference>
-    <!-- The editor brings this at run time; keeping it out of the package means
+    <!-- The editor brings these at run time; keeping them out of the package means
          installing the plugin downloads nothing else. -->
     <PackageReference Include="Aml.Editor.API" Version="2.3.0">
       <ExcludeAssets>runtime</ExcludeAssets>
@@ -40,9 +40,24 @@
     <None Include="Metadata.xml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
     <None Include="$(OutputPath)$(AssemblyName).deps.json" Pack="true" PackagePath="lib\$(TargetFramework)" />
-    <!-- The server itself, built by publish-server.ps1 into runtime\. -->
     <None Include="runtime\aml-mcp.exe" CopyToOutputDirectory="PreserveNewest" Condition="Exists('runtime\aml-mcp.exe')"
           Pack="true" PackagePath="lib\$(TargetFramework)\runtime\aml-mcp.exe" />
   </ItemGroup>
+
+  <!--
+    The server is a .NET 10 program for three platforms, the plugin a .NET 8 WPF panel for
+    Windows, so they cannot be one project. Building the plugin publishes the server into
+    runtime\ when it is missing or older than its sources, so one build is enough.
+  -->
+  <ItemGroup>
+    <ServerSource Include="$(MSBuildThisFileDirectory)..\..\src\AmlMcp\**\*.cs" />
+    <ServerSource Include="$(MSBuildThisFileDirectory)..\..\src\AmlMcp\*.csproj" />
+  </ItemGroup>
+
+  <Target Name="PublishServerIntoPlugin" BeforeTargets="BeforeBuild"
+          Inputs="@(ServerSource)" Outputs="$(MSBuildThisFileDirectory)runtime\aml-mcp.exe">
+    <Message Importance="high" Text="Publishing aml-mcp into the plugin ..." />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(MSBuildThisFileDirectory)..\..\src\AmlMcp&quot; -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:BaseOutputPath=&quot;$(TEMP)\amlmcp-plugin-build/&quot; -o &quot;$(MSBuildThisFileDirectory)runtime&quot; --nologo" />
+  </Target>
 
 </Project>
