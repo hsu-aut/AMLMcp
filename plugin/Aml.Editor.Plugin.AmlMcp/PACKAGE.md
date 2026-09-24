@@ -15,10 +15,13 @@ The panel carries the server, so nothing else has to be installed.
 - **Questions to try.** Three questions about the document you just read, with the names of its own
   views and of the element that ties the most of them together.
 
-The assistant then works through nine tools: an overview of the document, the containment tree, a
+The assistant then works through ten tools: an overview of the document, the containment tree, a
 search, an element card with every link and reference, neighbours, the path between two elements,
-class cards, the class list, and a reference check. Every answer names element IDs and paths, so any
-statement can be looked up in the editor's tree.
+class cards, the class list, and a reference check. Every answer names element IDs and paths.
+
+The tenth goes the other way: **the assistant can select an element in your tree**. Ask which station
+performs a step, and instead of leaving you to search an ID, it expands the hierarchy and highlights
+the element in the editor.
 
 ## What it reads
 

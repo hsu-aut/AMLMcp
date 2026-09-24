@@ -303,6 +303,39 @@ public static class AmlTools
 
     // ------------------------------------------------------------------ checks
 
+    [McpServerTool(Name = "show_in_editor", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("Points the AutomationML Editor the user is working in at one element: it is expanded and selected in " +
+                 "the tree, so the user sees what you are talking about instead of looking up an ID by hand. Needs the " +
+                 "editor panel that ships with this server; without it the call is refused. AutomationML, CAEX, show, " +
+                 "select, highlight, navigate to element.")]
+    public static CallToolResult ShowInEditor(
+        DocumentStore store,
+        [Description("Element ID, path (Hierarchy/Parent/Child) or unique name.")] string element,
+        [Description(DocumentParameter)] string? document = null)
+    {
+        if (store.Options.SelectFile is not { } file)
+            throw new McpException("No editor is attached. Start the server with --select <file>, which the AutomationML Editor panel does for you.");
+
+        var m = store.Get(document);
+        var found = m.ResolveElement(element);
+        var id = IdOf(found);
+        if (id.Length == 0)
+            throw new McpException($"'{PathOf(found)}' has no ID, so the editor cannot select it.");
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, id);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new McpException($"Could not tell the editor which element to show: {ex.Message}");
+        }
+
+        var text = $"Showing {PathOf(found)} in the editor.\n  id: {id}\n  hierarchy: {HierarchyNameOf(found)}";
+        return Answer(text, Structured.Ref(m, found));
+    }
+
     [McpServerTool(Name = "check_references", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Checks the document's referential integrity: class paths that do not resolve against embedded or " +
                  "external libraries, InternalLinks with missing partners, dangling references, mirror objects whose " +

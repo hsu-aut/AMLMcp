@@ -14,6 +14,9 @@ if (args.Contains("--help") || args.Contains("-h"))
           --follow <file>         Answer about the document whose path this file contains, as long as
                                   the client names none. An editor plugin keeps the file up to date.
                                   Environment: AML_MCP_FOLLOW
+          --select <file>         Let show_in_editor point an editor at an element by writing its ID
+                                  into this file. An editor plugin watches it.
+                                  Environment: AML_MCP_SELECT
           --strict-conventions    Interpret only what CAEX and the shared AutomationML libraries define,
                                   without the attribute name conventions of older libraries.
                                   Environment: AML_MCP_STRICT=1
@@ -75,6 +78,8 @@ static string Instructions(ServerOptions options)
                     "get_element (one element with its attributes, interfaces and every link), get_neighbors " +
                     "(follow links and references), find_path (how two elements are connected), get_class, " +
                     "list_classes, check_references. Ask for them by name if your client loads tools on demand.");
+    if (options.SelectFile is not null)
+        text.AppendLine("You can point the user's editor at an element with show_in_editor. Use it when you name an element they would otherwise have to look up by hand.");
     if (options.Roots.Count > 0)
         text.AppendLine($"Readable directories: {options.RootsDescription}.");
     return text.ToString();

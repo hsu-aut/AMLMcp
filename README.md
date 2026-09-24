@@ -3,8 +3,8 @@
 An MCP server for AutomationML. It lets a language model client read and navigate CAEX 3.0, CAEX 2.15
 and AMLX documents without loading the XML into its context.
 
-- Nine tools over one open document: overview, tree, search, element card, neighbours, path, class
-  card, class list, reference check
+- Ten tools over one open document: overview, tree, search, element card, neighbours, path, class
+  card, class list, reference check, and show it in the editor
 - Resolves external libraries, class inheritance, mirror objects and object references
 - Every answer names IDs and paths, so a client can check each statement in the model
 
@@ -93,6 +93,7 @@ nuget.org the PlugIn Manager finds it by itself. The editor is not needed for an
 | `get_class` | One class: inheritance, attributes with defaults, interfaces, subclasses, how often it is used |
 | `list_classes` | The classes of all libraries available to the document |
 | `check_references` | Class paths that do not resolve, missing libraries, links without partners, dangling references, mirrors without master, duplicate IDs |
+| `show_in_editor` | Expands and selects one element in the AutomationML Editor the user is working in, so an answer becomes a place in their tree |
 
 Each tool returns text for the model and `structuredContent` for programs; the record types are in
 [`src/AmlMcp/Dto.cs`](src/AmlMcp/Dto.cs). There are two resources, `aml://documents` and
@@ -104,6 +105,7 @@ Each tool returns text for the model and `structuredContent` for programs; the r
 |---|---|
 | `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS` |
 | `--follow <file>` | Answer about the document whose path this file holds, as long as the client names none. The editor panel keeps it up to date, so switching documents needs no restart. Environment: `AML_MCP_FOLLOW` |
+| `--select <file>` | Let `show_in_editor` write the ID of an element here. The editor panel watches the file and selects the element. Environment: `AML_MCP_SELECT` |
 | `--strict-conventions` | Interpret only what CAEX and the shared libraries define, without the attribute name conventions of older libraries. Environment: `AML_MCP_STRICT=1` |
 | `--help`, `--version` | Print usage or version |
 
@@ -127,8 +129,10 @@ Graph traversal happens in the server, not in the model, which keeps small local
 
 ## Notes
 
-The server only reads. XML is parsed with DTD processing disabled. Descriptions and attribute values
-reach the language model as they are, so treat documents from untrusted sources accordingly.
+The server never writes to a document. The only file it writes is the one given with `--select`, and
+only to tell an editor which element to show. XML is parsed with DTD processing disabled. Descriptions
+and attribute values reach the language model as they are, so treat documents from untrusted sources
+accordingly.
 
 ## Related
 

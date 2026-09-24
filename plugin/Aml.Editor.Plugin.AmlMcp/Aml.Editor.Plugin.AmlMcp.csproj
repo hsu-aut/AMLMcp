@@ -26,6 +26,10 @@
     </PackageReference>
     <!-- The editor brings this at run time; keeping it out of the package means
          installing the plugin downloads nothing else. -->
+    <PackageReference Include="Aml.Editor.API" Version="2.3.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Aml.Engine" Version="4.5.2">
       <ExcludeAssets>runtime</ExcludeAssets>
       <PrivateAssets>All</PrivateAssets>

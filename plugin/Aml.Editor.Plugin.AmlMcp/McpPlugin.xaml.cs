@@ -14,6 +14,7 @@ public partial class McpPlugin : PluginViewBase
 
     private string? _documentPath;
     private bool _rootEdited;
+    private EditorLink? _link;
 
     public McpPlugin()
     {
@@ -24,11 +25,16 @@ public partial class McpPlugin : PluginViewBase
         RootBox.TextChanged += (_, _) => _rootEdited = true;
         ShowDefaultQuestions(null);
 
+        // Lets the assistant select an element in the editor's tree.
+        _link = new EditorLink(Dispatcher, message => Status(true, message));
+        Unloaded += (_, _) => { _link?.Dispose(); _link = null; };
+
         // The editor only reports a change; a document opened before this panel existed
         // has to be looked up once.
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_documentPath is null && EditorDocument.CurrentPath() is { } open) UseDocument(open);
+            if (_documentPath is not null) return;
+            if ((EditorLink.CurrentDocument() ?? EditorDocument.CurrentPath()) is { } open) UseDocument(open);
         }), System.Windows.Threading.DispatcherPriority.Background);
 
         if (ServerPath() is { } exe)

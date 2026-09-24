@@ -9,7 +9,9 @@ without details, and we will arrange a channel.
 ## What this server does
 
 It reads AutomationML files and answers questions about them over stdio. It never writes to a
-document, opens no network connection, and runs with the rights of the user who started it.
+document, opens no network connection, and runs with the rights of the user who started it. The one
+file it writes is the one given with `--select`, which holds the ID of an element an editor should
+show.
 
 Two things follow from that, and both are the operator's decision:
 

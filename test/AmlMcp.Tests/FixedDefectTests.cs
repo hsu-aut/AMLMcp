@@ -781,13 +781,69 @@ public sealed class ToolAnnotationTests
             .Where(a => a is not null)
             .ToList();
 
-        Assert.Equal(9, tools.Count);
+        Assert.Equal(10, tools.Count);
         Assert.All(tools, tool =>
         {
-            Assert.True(tool!.ReadOnly);
-            Assert.True(tool.Idempotent);
+            Assert.True(tool!.Idempotent);
             Assert.False(tool.Destructive);
             Assert.False(tool.OpenWorld);
         });
+
+        // Nine read. show_in_editor writes a file for the editor, and says so.
+        Assert.Equal(9, tools.Count(t => t!.ReadOnly));
+        Assert.Equal("show_in_editor", Assert.Single(tools.Where(t => !t!.ReadOnly))!.Name);
+    }
+}
+
+/// <summary>An assistant can point the editor at an element instead of leaving the user to search.</summary>
+public sealed class ShowInEditorTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+
+    public void Dispose() => _ws.Dispose();
+
+    private DocumentStore Store(string? selectFile)
+    {
+        var arguments = selectFile is null
+            ? new[] { "--root", _ws.Dir }
+            : new[] { "--root", _ws.Dir, "--select", selectFile };
+        var store = new DocumentStore(ServerOptions.Parse(arguments));
+        AmlTools.OpenDocumentText(store, _ws.Write("rich.aml", Fixtures.Rich30));
+        return store;
+    }
+
+    [Fact]
+    public void The_id_of_the_element_is_written_where_the_editor_watches()
+    {
+        var selectFile = Path.Combine(_ws.Dir, "show-in-editor.txt");
+        var store = Store(selectFile);
+
+        var result = AmlTools.ShowInEditor(store, "Station1");
+        var data = Answer.Data(result);
+
+        var id = File.ReadAllText(selectFile).Trim();
+        Assert.Equal(data.GetProperty("id").GetString(), id);
+        Assert.Contains("Showing", Answer.Text(result));
+        Assert.Contains(data.GetProperty("path").GetString()!, Answer.Text(result));
+    }
+
+    [Fact]
+    public void Without_an_editor_the_call_says_what_is_missing()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(null), "Station1"));
+
+        Assert.Contains("No editor is attached", ex.Message);
+        Assert.Contains("--select", ex.Message);
+    }
+
+    [Fact]
+    public void An_unknown_element_is_refused_before_anything_is_written()
+    {
+        var selectFile = Path.Combine(_ws.Dir, "show-in-editor.txt");
+        var store = Store(selectFile);
+
+        Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "NoSuchElement"));
+
+        Assert.False(File.Exists(selectFile));
     }
 }

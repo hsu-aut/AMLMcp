@@ -26,6 +26,10 @@ internal sealed class McpProbe : IDisposable
     public static string PointerFile { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AmlMcp", "open-document.txt");
 
+    /// <summary>The file show_in_editor writes into: the ID of the element to select.</summary>
+    public static string SelectFile { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AmlMcp", "show-in-editor.txt");
+
     public static void PointAt(string? documentPath)
     {
         try
@@ -57,6 +61,8 @@ internal sealed class McpProbe : IDisposable
         }
         info.ArgumentList.Add("--follow");
         info.ArgumentList.Add(PointerFile);
+        info.ArgumentList.Add("--select");
+        info.ArgumentList.Add(SelectFile);
         _process = Process.Start(info) ?? throw new InvalidOperationException($"{exePath} did not start.");
     }
 
@@ -263,6 +269,8 @@ internal sealed class McpProbe : IDisposable
         }
         args.Add("--follow");
         args.Add(PointerFile);
+        args.Add("--select");
+        args.Add(SelectFile);
         return new JsonObject
         {
             ["mcpServers"] = new JsonObject
