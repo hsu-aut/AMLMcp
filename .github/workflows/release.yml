@@ -91,6 +91,12 @@ jobs:
       # Building the plugin publishes the server into it.
       - name: Build the plugin
         run: dotnet build plugin/AmlMcp.Editor.sln -c Release --nologo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # A package without the server would be published to nuget.org for good.
+      - name: Check that the package carries the server
+        run: python .github/scripts/check-plugin-package.py
       - uses: actions/upload-artifact@v4
         with:
           name: editor-plugin

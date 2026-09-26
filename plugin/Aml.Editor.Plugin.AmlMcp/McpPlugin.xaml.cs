@@ -48,7 +48,7 @@ public partial class McpPlugin : PluginViewBase
         else
         {
             Status(false, "aml-mcp.exe was not found next to the plugin");
-            ServerLine.Text = "Build it with plugin\\publish-server.ps1 and install the plugin again.";
+            ServerLine.Text = "Build the plugin solution again and install it; the build packs the server into it.";
         }
     }
 

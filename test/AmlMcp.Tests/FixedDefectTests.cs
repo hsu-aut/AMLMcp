@@ -791,7 +791,7 @@ public sealed class ToolAnnotationTests
 
         // Nine read. show_in_editor writes a file for the editor, and says so.
         Assert.Equal(9, tools.Count(t => t!.ReadOnly));
-        Assert.Equal("show_in_editor", Assert.Single(tools.Where(t => !t!.ReadOnly))!.Name);
+        Assert.Equal("show_in_editor", Assert.Single(tools, t => !t!.ReadOnly)!.Name);
     }
 }
 

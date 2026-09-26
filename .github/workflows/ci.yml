@@ -41,6 +41,25 @@ jobs:
       - name: Pack
         run: dotnet pack src/AmlMcp -c Release -o nupkg --nologo
 
+  plugin:
+    # The editor panel is Windows only and not part of AmlMcp.sln, so it is built here.
+    # The package must carry the server, in the version it claims.
+    name: editor plugin
+    timeout-minutes: 30
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the plugin
+        run: dotnet build plugin/AmlMcp.Editor.sln -c Release --nologo
+      - name: Check that the package carries the server
+        run: python .github/scripts/check-plugin-package.py
+
   metadata:
     name: packaging metadata
     timeout-minutes: 10
