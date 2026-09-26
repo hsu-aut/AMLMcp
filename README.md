@@ -94,7 +94,7 @@ nuget.org the PlugIn Manager finds it by itself. The editor is not needed for an
 | `get_class` | One class: inheritance, attributes with defaults, interfaces, subclasses, how often it is used |
 | `list_classes` | The classes of all libraries available to the document |
 | `check_references` | Class paths that do not resolve, missing libraries, links without partners, dangling references, mirrors without master, duplicate IDs |
-| `show_in_editor` | Expands and selects one element in the AutomationML Editor the user is working in, so an answer becomes a place in their tree |
+| `show_in_editor` | Expands and selects one element in the AutomationML Editor the user is working in, so an answer becomes a place in their tree. The editor confirms; without an answer the tool reports that nothing was shown |
 
 Each tool returns text for the model and `structuredContent` for programs; the record types are in
 [`src/AmlMcp/Dto.cs`](src/AmlMcp/Dto.cs). There are two resources, `aml://documents` and
@@ -106,7 +106,7 @@ Each tool returns text for the model and `structuredContent` for programs; the r
 |---|---|
 | `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS` |
 | `--follow <file>` | Answer about the document whose path this file holds, as long as the client names none. The editor panel keeps it up to date, so switching documents needs no restart. Environment: `AML_MCP_FOLLOW` |
-| `--select <file>` | Let `show_in_editor` write the ID of an element here. The editor panel watches the file and selects the element. Environment: `AML_MCP_SELECT` |
+| `--select <file>` | Where `show_in_editor` writes its request (document, element, nonce). The editor panel watches the file, selects the element and answers in `<file>.ack`. Environment: `AML_MCP_SELECT` |
 | `--strict-conventions` | Interpret only what CAEX and the shared libraries define, without the attribute name conventions of older libraries. Environment: `AML_MCP_STRICT=1` |
 | `--help`, `--version` | Print usage or version |
 

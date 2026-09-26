@@ -30,13 +30,29 @@ public static class AmlResources
     {
         var m = store.Get(null);
         var sb = new StringBuilder($"Class libraries of {Path.GetFileName(m.FilePath)}:\n");
+        // A referenced library can hold thousands of classes and this resource is read whole,
+        // so it is capped like every tool answer, and it says what it left out.
+        const int perLibrary = 60;
+        const int total = 400;
+        var listed = 0;
+        var omitted = 0;
+
         foreach (var library in m.Classes.Values.GroupBy(c => c.Library).OrderBy(g => g.Key))
         {
             var external = library.First().External;
-            sb.AppendLine($"\n{library.Key}{(external ? "  (external file)" : "  (embedded)")}");
+            sb.AppendLine($"\n{library.Key}{(external ? "  (external file)" : "  (embedded)")}, {library.Count()} classes");
+            var shown = 0;
             foreach (var cls in library.OrderBy(c => c.PlainPath))
+            {
+                if (shown >= perLibrary || listed >= total) { omitted++; continue; }
                 sb.AppendLine($"  {cls.PlainPath}  ({cls.Kind})");
+                shown++;
+                listed++;
+            }
         }
+
+        if (omitted > 0)
+            sb.AppendLine($"\n{omitted} class(es) not listed here. Use list_classes to filter them, or get_class for one.");
         return sb.ToString();
     }
 }

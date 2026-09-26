@@ -314,7 +314,7 @@ public static class AmlTools
         [Description(DocumentParameter)] string? document = null)
     {
         if (store.Options.SelectFile is not { } file)
-            throw new McpException("No editor is attached. Start the server with --select <file>, which the AutomationML Editor panel does for you.");
+            throw new McpException("No editor is attached. Open the AmlMcp panel in the AutomationML Editor and press Register, then restart the assistant.");
 
         var m = store.Get(document);
         var found = m.ResolveElement(element);
@@ -322,17 +322,25 @@ public static class AmlTools
         if (id.Length == 0)
             throw new McpException($"'{PathOf(found)}' has no ID, so the editor cannot select it.");
 
+        ShowRequest request;
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            File.WriteAllText(file, id);
+            request = EditorHandshake.Write(file, m.FilePath, id, PathOf(found));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new McpException($"Could not tell the editor which element to show: {ex.Message}");
         }
 
-        var text = $"Showing {PathOf(found)} in the editor.\n  id: {id}\n  hierarchy: {HierarchyNameOf(found)}";
+        // Only the editor's answer proves that anything happened. Writing a file does not.
+        var ack = EditorHandshake.WaitForAck(file, request.Nonce)
+            ?? throw new McpException("No AutomationML Editor answered. Is it running with the AmlMcp panel open? " +
+                                      $"Nothing was shown; the element is {PathOf(found)}, id {id}.");
+
+        if (ack.Status != "selected")
+            throw new McpException($"The editor did not show it: {ack.Detail ?? ack.Status}.");
+
+        var text = $"Showing {PathOf(found)} in the editor, confirmed.\n  id: {id}\n  hierarchy: {HierarchyNameOf(found)}";
         return Answer(text, Structured.Ref(m, found));
     }
 

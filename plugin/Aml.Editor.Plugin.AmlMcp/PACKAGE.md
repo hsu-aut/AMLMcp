@@ -21,7 +21,8 @@ class cards, the class list, and a reference check. Every answer names element I
 
 The tenth goes the other way: **the assistant can select an element in your tree**. Ask which station
 performs a step, and instead of leaving you to search an ID, it expands the hierarchy and highlights
-the element in the editor.
+the element in the editor. The panel answers every such request, so the assistant can tell you when
+the editor is closed or shows another document instead of claiming it pointed at something.
 
 ## What it reads
 

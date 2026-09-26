@@ -795,55 +795,178 @@ public sealed class ToolAnnotationTests
     }
 }
 
-/// <summary>An assistant can point the editor at an element instead of leaving the user to search.</summary>
+/// <summary>
+/// An assistant can point the editor at an element, and only claims success when the editor
+/// confirms. A file nobody reads must not read as "shown".
+/// </summary>
 public sealed class ShowInEditorTests : IDisposable
 {
     private readonly Workspace _ws = new();
+    private readonly TimeSpan _patience = EditorHandshake.Patience;
 
-    public void Dispose() => _ws.Dispose();
+    public ShowInEditorTests() => EditorHandshake.Patience = TimeSpan.FromMilliseconds(600);
 
-    private DocumentStore Store(string? selectFile)
+    public void Dispose()
     {
-        var arguments = selectFile is null
-            ? new[] { "--root", _ws.Dir }
-            : new[] { "--root", _ws.Dir, "--select", selectFile };
+        EditorHandshake.Patience = _patience;
+        _ws.Dispose();
+    }
+
+    private string SelectFile => Path.Combine(_ws.Dir, "show-in-editor.json");
+
+    private DocumentStore Store(bool withEditor = true)
+    {
+        var arguments = withEditor
+            ? new[] { "--root", _ws.Dir, "--select", SelectFile }
+            : new[] { "--root", _ws.Dir };
         var store = new DocumentStore(ServerOptions.Parse(arguments));
         AmlTools.OpenDocumentText(store, _ws.Write("rich.aml", Fixtures.Rich30));
         return store;
     }
 
-    [Fact]
-    public void The_id_of_the_element_is_written_where_the_editor_watches()
+    private readonly HashSet<string> _answered = new();
+
+    /// <summary>
+    /// Stands in for the editor panel: answers a request once. Like the panel it tells requests
+    /// apart by their nonce, so an old file is not answered again.
+    /// </summary>
+    private Task PlayEditor(string status, string? detail = null, Action<ShowRequest>? inspect = null) => Task.Run(() =>
     {
-        var selectFile = Path.Combine(_ws.Dir, "show-in-editor.txt");
-        var store = Store(selectFile);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (File.Exists(SelectFile))
+                {
+                    var request = System.Text.Json.JsonSerializer.Deserialize<ShowRequest>(File.ReadAllText(SelectFile));
+                    if (request is not null && _answered.Add(request.Nonce))
+                    {
+                        inspect?.Invoke(request);
+                        File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
+                            System.Text.Json.JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
+                        return;
+                    }
+                }
+            }
+            catch (IOException) { /* the server may still be writing */ }
+            Thread.Sleep(10);
+        }
+    });
+
+    [Fact]
+    public void The_request_names_the_document_the_element_and_a_nonce()
+    {
+        var store = Store();
+        ShowRequest? seen = null;
+        var editor = PlayEditor("selected", inspect: r => seen = r);
 
         var result = AmlTools.ShowInEditor(store, "Station1");
-        var data = Answer.Data(result);
+        editor.Wait();
 
-        var id = File.ReadAllText(selectFile).Trim();
-        Assert.Equal(data.GetProperty("id").GetString(), id);
-        Assert.Contains("Showing", Answer.Text(result));
-        Assert.Contains(data.GetProperty("path").GetString()!, Answer.Text(result));
+        Assert.NotNull(seen);
+        Assert.Equal(Answer.Data(result).GetProperty("id").GetString(), seen!.Id);
+        Assert.Equal(Path.Combine(_ws.Dir, "rich.aml"), seen.Document);
+        Assert.Equal("Station1", Path.GetFileName(seen.Path));
+        Assert.NotEmpty(seen.Nonce);
+        Assert.Contains("confirmed", Answer.Text(result));
     }
 
     [Fact]
-    public void Without_an_editor_the_call_says_what_is_missing()
+    public void Showing_the_same_element_twice_works_the_second_time_as_well()
     {
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(null), "Station1"));
+        var store = Store();
+        var nonces = new List<string>();
 
-        Assert.Contains("No editor is attached", ex.Message);
-        Assert.Contains("--select", ex.Message);
+        for (var round = 0; round < 2; round++)
+        {
+            var editor = PlayEditor("selected", inspect: r => nonces.Add(r.Nonce));
+            AmlTools.ShowInEditor(store, "Station1");
+            editor.Wait();
+        }
+
+        Assert.Equal(2, nonces.Count);
+        Assert.NotEqual(nonces[0], nonces[1]);
+    }
+
+    [Fact]
+    public void Without_an_answer_the_call_does_not_claim_that_anything_was_shown()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(), "Station1"));
+
+        Assert.Contains("No AutomationML Editor answered", ex.Message);
+        Assert.Contains("Nothing was shown", ex.Message);
+    }
+
+    [Fact]
+    public void An_editor_showing_another_document_says_so()
+    {
+        var editor = PlayEditor("mismatch", "the editor has another document open: other.aml");
+
+        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(), "Station1"));
+        editor.Wait();
+
+        Assert.Contains("did not show it", ex.Message);
+        Assert.Contains("other.aml", ex.Message);
+    }
+
+    [Fact]
+    public void Without_an_editor_the_refusal_tells_the_user_what_to_do()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(withEditor: false), "Station1"));
+
+        Assert.Contains("AmlMcp panel", ex.Message);
+        Assert.Contains("Register", ex.Message);
     }
 
     [Fact]
     public void An_unknown_element_is_refused_before_anything_is_written()
     {
-        var selectFile = Path.Combine(_ws.Dir, "show-in-editor.txt");
-        var store = Store(selectFile);
+        var store = Store();
 
         Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "NoSuchElement"));
 
-        Assert.False(File.Exists(selectFile));
+        Assert.False(File.Exists(SelectFile));
+    }
+
+    [Fact]
+    public void An_answer_to_an_older_request_is_not_taken_for_this_one()
+    {
+        var store = Store();
+        File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
+            System.Text.Json.JsonSerializer.Serialize(new ShowAck("an-old-nonce", "selected")));
+
+        Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "Station1"));
+    }
+}
+
+/// <summary>The library resource is read whole, so it must not be unbounded.</summary>
+public sealed class LibraryResourceTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_large_library_is_capped_and_says_what_it_left_out()
+    {
+        var classes = string.Join("\n", Enumerable.Range(0, 500)
+            .Select(i => $"    <SystemUnitClass Name=\"Class{i:000}\" />"));
+        var document = $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile SchemaVersion="3.0" FileName="big.aml" xmlns="http://www.dke.de/CAEX">
+              <SystemUnitClassLib Name="BigLib">
+            {classes}
+              </SystemUnitClassLib>
+            </CAEXFile>
+            """;
+        AmlTools.OpenDocumentText(_store, _ws.Write("big.aml", document));
+
+        var text = AmlResources.ClassLibraries(_store);
+
+        Assert.Contains("BigLib  (embedded), 500 classes", text);
+        Assert.Contains("class(es) not listed here", text);
+        Assert.InRange(text.Split('\n').Length, 10, 120);
     }
 }

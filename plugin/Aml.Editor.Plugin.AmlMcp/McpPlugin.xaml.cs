@@ -25,9 +25,19 @@ public partial class McpPlugin : PluginViewBase
         RootBox.TextChanged += (_, _) => _rootEdited = true;
         ShowDefaultQuestions(null);
 
-        // Lets the assistant select an element in the editor's tree.
-        _link = new EditorLink(Dispatcher, message => Status(true, message));
-        Unloaded += (_, _) => { _link?.Dispose(); _link = null; };
+        // Lets the assistant select an element in the editor's tree. Docking, floating and
+        // switching tabs take the panel out of the visual tree, so the link is rebuilt on Loaded
+        // instead of being created once and lost on the first Unloaded.
+        Loaded += (_, _) =>
+        {
+            _link ??= new EditorLink(Dispatcher, message => Status(true, message));
+            WarnWhenAssistantIsOutOfDate();
+        };
+        Unloaded += (_, _) =>
+        {
+            _link?.Dispose();
+            _link = null;
+        };
 
         // The editor only reports a change; a document opened before this panel existed
         // has to be looked up once.
@@ -73,6 +83,18 @@ public partial class McpPlugin : PluginViewBase
         if (_rootEdited) return;
         RootBox.Text = Path.GetDirectoryName(path) ?? "";
         _rootEdited = false;
+    }
+
+    /// <summary>
+    /// An entry written by an older version lacks the arguments this one needs, and the
+    /// assistant would refuse with something the user cannot act on from a chat window.
+    /// </summary>
+    private void WarnWhenAssistantIsOutOfDate()
+    {
+        if (ServerPath() is not { } exe) return;
+        if (McpProbe.ClaudeDesktopIsCurrent(exe, Root())) return;
+        if (!File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json"))) return;
+        Status(false, "Claude Desktop is configured for an older version or another directory: press Register, then restart it");
     }
 
     private void OnBrowse(object sender, RoutedEventArgs e)

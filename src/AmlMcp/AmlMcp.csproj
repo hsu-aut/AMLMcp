@@ -43,6 +43,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The tests shorten how long the server waits for an editor. -->
+    <InternalsVisibleTo Include="AmlMcp.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
   </ItemGroup>

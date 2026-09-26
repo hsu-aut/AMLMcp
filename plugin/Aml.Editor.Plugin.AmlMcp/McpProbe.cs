@@ -28,7 +28,7 @@ internal sealed class McpProbe : IDisposable
 
     /// <summary>The file show_in_editor writes into: the ID of the element to select.</summary>
     public static string SelectFile { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AmlMcp", "show-in-editor.txt");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AmlMcp", "show-in-editor.json");
 
     public static void PointAt(string? documentPath)
     {
@@ -220,6 +220,20 @@ internal sealed class McpProbe : IDisposable
             ? string.Join(" and ", names)
             : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
 
+    /// <summary>Asks the server to show an element, and returns what it said.</summary>
+    public string ShowInEditor(string element)
+    {
+        try
+        {
+            var (text, _) = Call("show_in_editor", new JsonObject { ["element"] = element }, TimeSpan.FromSeconds(30));
+            return text.Replace(Environment.NewLine, " | ").Replace("\n", " | ");
+        }
+        catch (Exception ex)
+        {
+            return "refused: " + ex.Message;
+        }
+    }
+
     /// <summary>Which document the server answers about when none is named.</summary>
     public string AskWithoutNamingADocument()
     {
@@ -278,6 +292,23 @@ internal sealed class McpProbe : IDisposable
                 ["aml"] = new JsonObject { ["command"] = exePath, ["args"] = args },
             },
         };
+    }
+
+    /// <summary>True when Claude Desktop is configured exactly as this panel would configure it.</summary>
+    public static bool ClaudeDesktopIsCurrent(string exePath, string? root)
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json");
+            if (!File.Exists(path)) return false;
+            var stored = (JsonNode.Parse(File.ReadAllText(path)) as JsonObject)?["mcpServers"]?["aml"];
+            var wanted = Configuration(exePath, root)["mcpServers"]!["aml"];
+            return stored is not null && JsonNode.DeepEquals(stored, wanted);
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
