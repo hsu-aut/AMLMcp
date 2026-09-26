@@ -40,8 +40,6 @@
     <None Include="Metadata.xml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
     <None Include="$(OutputPath)$(AssemblyName).deps.json" Pack="true" PackagePath="lib\$(TargetFramework)" />
-    <None Include="runtime\aml-mcp.exe" CopyToOutputDirectory="PreserveNewest" Condition="Exists('runtime\aml-mcp.exe')"
-          Pack="true" PackagePath="lib\$(TargetFramework)\runtime\aml-mcp.exe" />
   </ItemGroup>
 
   <!--
@@ -49,15 +47,37 @@
     Windows, so they cannot be one project. Building the plugin publishes the server into
     runtime\ when it is missing or older than its sources, so one build is enough.
   -->
+  <PropertyGroup>
+    <ServerProject>$(MSBuildThisFileDirectory)..\..\src\AmlMcp</ServerProject>
+    <ServerExe>$(MSBuildThisFileDirectory)runtime\aml-mcp.exe</ServerExe>
+    <ServerBuildDirectory>$(MSBuildThisFileDirectory)..\..\build\server-for-plugin\</ServerBuildDirectory>
+  </PropertyGroup>
+
   <ItemGroup>
-    <ServerSource Include="$(MSBuildThisFileDirectory)..\..\src\AmlMcp\**\*.cs" />
-    <ServerSource Include="$(MSBuildThisFileDirectory)..\..\src\AmlMcp\*.csproj" />
+    <ServerSource Include="$(ServerProject)\**\*.cs" Exclude="$(ServerProject)\bin\**;$(ServerProject)\obj\**" />
+    <ServerSource Include="$(ServerProject)\*.csproj;$(ServerProject)\.mcp\server.json" />
+    <!-- The version lives here, and a bump alone has to republish the server. -->
+    <ServerSource Include="$(MSBuildThisFileDirectory)..\..\Directory.Build.props;$(MSBuildThisFileDirectory)..\..\global.json" />
   </ItemGroup>
 
-  <Target Name="PublishServerIntoPlugin" BeforeTargets="BeforeBuild"
-          Inputs="@(ServerSource)" Outputs="$(MSBuildThisFileDirectory)runtime\aml-mcp.exe">
+  <Target Name="PublishServerIntoPlugin" Inputs="@(ServerSource)" Outputs="$(ServerExe)">
     <Message Importance="high" Text="Publishing aml-mcp into the plugin ..." />
-    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(MSBuildThisFileDirectory)..\..\src\AmlMcp&quot; -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:BaseOutputPath=&quot;$(TEMP)\amlmcp-plugin-build/&quot; -o &quot;$(MSBuildThisFileDirectory)runtime&quot; --nologo" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(ServerProject)&quot; -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:BaseOutputPath=&quot;$(ServerBuildDirectory)bin/&quot; -o &quot;$(MSBuildThisFileDirectory)runtime&quot; --nologo" />
+  </Target>
+
+  <!--
+    The item has to be created after the publish. A static item with a Condition would be
+    evaluated before any target runs, so on a fresh checkout the server would be missing
+    from the output and, worse, from the package.
+  -->
+  <Target Name="AddServerToPlugin" DependsOnTargets="PublishServerIntoPlugin"
+          BeforeTargets="AssignTargetPaths;_GetPackageFiles;GenerateNuspec">
+    <Error Condition="!Exists('$(ServerExe)')"
+           Text="aml-mcp.exe is missing at $(ServerExe). The plugin must not be packed without the server." />
+    <ItemGroup>
+      <None Include="$(ServerExe)" Link="runtime\aml-mcp.exe" CopyToOutputDirectory="PreserveNewest"
+            Pack="true" PackagePath="lib\$(TargetFramework)\runtime\aml-mcp.exe" />
+    </ItemGroup>
   </Target>
 
 </Project>
