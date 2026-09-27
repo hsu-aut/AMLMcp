@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)..\..\build\Tests\$(MSBuildProjectName)</BaseOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!--
+    The panel's own sources are compiled in rather than referenced: the plugin project
+    publishes a 39 MB server into itself on every build, which a test run does not need.
+    The editor API types are not touched by these files.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Aml.Editor.Plugin.AmlMcp\EditorLink.cs" Link="EditorLink.cs" />
+    <Compile Include="..\Aml.Editor.Plugin.AmlMcp\EditorSelection.cs" Link="EditorSelection.cs" />
+    <Compile Include="..\Aml.Editor.Plugin.AmlMcp\McpProbe.cs" Link="McpProbe.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aml.Editor.Plugin.Contract" Version="4.3.0" />
+    <PackageReference Include="Aml.Editor.API" Version="2.3.0" />
+  </ItemGroup>
+
+</Project>

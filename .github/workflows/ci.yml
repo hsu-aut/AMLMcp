@@ -57,6 +57,8 @@ jobs:
           python-version: '3.12'
       - name: Build the plugin
         run: dotnet build plugin/AmlMcp.Editor.sln -c Release --nologo
+      - name: Test the plugin
+        run: dotnet test plugin/AmlMcp.Editor.sln -c Release --nologo --no-build
       - name: Check that the package carries the server
         run: python .github/scripts/check-plugin-package.py
 

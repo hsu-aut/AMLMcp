@@ -91,6 +91,8 @@ jobs:
       # Building the plugin publishes the server into it.
       - name: Build the plugin
         run: dotnet build plugin/AmlMcp.Editor.sln -c Release --nologo
+      - name: Test the plugin
+        run: dotnet test plugin/AmlMcp.Editor.sln -c Release --nologo --no-build
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -4,8 +4,6 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Windows.Threading;
-using Aml.Editor.API;
 
 namespace Aml.Editor.Plugin.AmlMcp;
 
@@ -22,113 +20,102 @@ internal sealed record ShowAck(
 
 internal sealed class EditorLink : IDisposable
 {
-    private readonly Dispatcher _dispatcher;
+    /// <summary>How many answered requests to remember, so the set cannot grow all session.</summary>
+    private const int Remembered = 64;
+
+    private readonly IEditorSelection _editor;
+    private readonly Action<Action> _onUiThread;
     private readonly Action<string> _report;
+    private readonly string _requestFile;
     private readonly FileSystemWatcher? _watcher;
-    private readonly DispatcherTimer _poll;
-    private readonly HashSet<string> _answered = new(StringComparer.Ordinal);
-    private DateTime _lastSeenWrite;
+    private readonly Queue<string> _answered = new();
+    private readonly HashSet<string> _answeredSet = new(StringComparer.Ordinal);
+    // The watcher fires on a pool thread and the timer on the UI thread; without this both
+    // can pass the duplicate check for the same request and then collide writing the answer.
+    private readonly object _gate = new();
 
-    public EditorLink(Dispatcher dispatcher, Action<string> report)
+    /// <param name="watch">
+    /// False drives the link by <see cref="Poll"/> alone, which is what the tests do: a live
+    /// watcher would answer requests between their steps.
+    /// </param>
+    public EditorLink(IEditorSelection editor, Action<Action> onUiThread, Action<string> report, string requestFile, bool watch = true)
     {
-        _dispatcher = dispatcher;
+        _editor = editor;
+        _onUiThread = onUiThread;
         _report = report;
+        _requestFile = requestFile;
 
-        var directory = Path.GetDirectoryName(McpProbe.SelectFile);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-                _watcher = new FileSystemWatcher(directory, Path.GetFileName(McpProbe.SelectFile))
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
-                    EnableRaisingEvents = true,
-                };
-                _watcher.Changed += (_, _) => Handle();
-                _watcher.Created += (_, _) => Handle();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-            {
-                _watcher = null;
-            }
-        }
-
-        // A watcher misses events on some shares and after a lost handle, and the request is
-        // worthless a few seconds late, so the file is looked at regularly as well.
-        _poll = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
-        {
-            Interval = TimeSpan.FromSeconds(1),
-        };
-        _poll.Tick += (_, _) => Handle();
-        _poll.Start();
-    }
-
-    public void Dispose()
-    {
-        _poll.Stop();
-        _watcher?.Dispose();
-    }
-
-    /// <summary>The document the editor currently shows, straight from its own API.</summary>
-    public static string? CurrentDocument()
-    {
+        var directory = Path.GetDirectoryName(_requestFile);
+        if (!watch || string.IsNullOrEmpty(directory)) return;
         try
         {
-            return AMLEditor.AMLApplication?.ActiveDocument?.FilePath;
+            Directory.CreateDirectory(directory);
+            _watcher = new FileSystemWatcher(directory, Path.GetFileName(_requestFile))
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime | NotifyFilters.FileName,
+                EnableRaisingEvents = true,
+            };
+            _watcher.Changed += (_, _) => Poll();
+            _watcher.Created += (_, _) => Poll();
+            _watcher.Renamed += (_, _) => Poll();
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            return null;
+            _watcher = null;
         }
     }
 
-    private void Handle()
+    public void Dispose() => _watcher?.Dispose();
+
+    public string AckFile => _requestFile + ".ack";
+
+    /// <summary>
+    /// Looks at the request file and answers a request that has not been answered yet.
+    /// Called by the watcher, and on a timer, because a watcher misses events on some shares.
+    /// </summary>
+    public void Poll()
     {
-        ShowRequest? request;
-        try
+        ShowRequest request;
+        lock (_gate)
         {
-            if (!File.Exists(McpProbe.SelectFile)) return;
-            var written = File.GetLastWriteTimeUtc(McpProbe.SelectFile);
-            if (written == _lastSeenWrite && _answered.Count > 0) return;
-            _lastSeenWrite = written;
-
-            request = Read();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return;
+            var read = Read();
+            // Each request is answered once. Two requests for the same element differ in their nonce.
+            if (read is null || _answeredSet.Contains(read.Nonce)) return;
+            Remember(read.Nonce);
+            request = read;
         }
 
-        // Each request is answered once. Two requests for the same element differ in their nonce.
-        if (request is null || !_answered.Add(request.Nonce)) return;
+        _onUiThread(() => Show(request));
+    }
 
-        _dispatcher.BeginInvoke(new Action(() => Show(request)));
+    private void Remember(string nonce)
+    {
+        _answeredSet.Add(nonce);
+        _answered.Enqueue(nonce);
+        while (_answered.Count > Remembered) _answeredSet.Remove(_answered.Dequeue());
     }
 
     private void Show(ShowRequest request)
     {
         try
         {
-            var editor = AMLEditor.AMLApplication;
-            if (editor is null)
+            if (!_editor.Available)
             {
                 Answer(request, "unavailable", "the editor API is not available in this session");
                 return;
             }
 
             // The assistant may be talking about another document than the one on screen.
-            var open = CurrentDocument();
-            if (!string.IsNullOrEmpty(open) && !string.IsNullOrEmpty(request.Document) &&
-                !string.Equals(Path.GetFullPath(open), Path.GetFullPath(request.Document), StringComparison.OrdinalIgnoreCase))
+            var open = _editor.CurrentDocument;
+            if (!string.IsNullOrEmpty(open) && !string.IsNullOrEmpty(request.Document) && !SameFile(open!, request.Document))
             {
-                Answer(request, "mismatch", $"the editor has {Path.GetFileName(open)} open, the element belongs to {Path.GetFileName(request.Document)}");
+                Answer(request, "mismatch",
+                    $"the editor has {Path.GetFileName(open)} open, the element belongs to {Path.GetFileName(request.Document)}");
                 _report($"the assistant pointed at an element of {Path.GetFileName(request.Document)}, which is not the open document");
                 return;
             }
 
-            editor.ExpandObjectById(request.Id);
-            editor.SelectObjectById(request.Id);
+            _editor.Select(request.Id);
             Answer(request, "selected");
             _report($"the assistant pointed at {request.Path}");
         }
@@ -139,12 +126,23 @@ internal sealed class EditorLink : IDisposable
         }
     }
 
+    private static bool SameFile(string one, string other)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(one), Path.GetFullPath(other), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return string.Equals(one, other, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private void Answer(ShowRequest request, string status, string? detail = null)
     {
         try
         {
-            File.WriteAllText(McpProbe.SelectFile + ".ack",
-                JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
+            File.WriteAllText(AckFile, JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -158,20 +156,21 @@ internal sealed class EditorLink : IDisposable
         {
             try
             {
-                using var stream = new FileStream(McpProbe.SelectFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (!File.Exists(_requestFile)) return null;
+                using var stream = new FileStream(_requestFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 using var reader = new StreamReader(stream);
                 var text = reader.ReadToEnd().Trim();
                 if (text.Length == 0) return null;
-                // Older servers wrote the bare ID.
-                return text.StartsWith("{", StringComparison.Ordinal)
-                    ? JsonSerializer.Deserialize<ShowRequest>(text)
-                    : new ShowRequest(text, "", text, text);
+
+                var request = JsonSerializer.Deserialize<ShowRequest>(text);
+                // Anything without a nonce cannot be answered, and would be answered forever.
+                return request is null || string.IsNullOrEmpty(request.Nonce) ? null : request;
             }
             catch (IOException)
             {
                 Thread.Sleep(20);
             }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or JsonException or FileNotFoundException or DirectoryNotFoundException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or JsonException)
             {
                 return null;
             }

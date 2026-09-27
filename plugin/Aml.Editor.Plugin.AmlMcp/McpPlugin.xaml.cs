@@ -3,6 +3,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Aml.Editor.Plugin.WPFBase;
 
 namespace Aml.Editor.Plugin.AmlMcp;
@@ -15,6 +16,7 @@ public partial class McpPlugin : PluginViewBase
     private string? _documentPath;
     private bool _rootEdited;
     private EditorLink? _link;
+    private DispatcherTimer? _poll;
 
     public McpPlugin()
     {
@@ -30,11 +32,23 @@ public partial class McpPlugin : PluginViewBase
         // instead of being created once and lost on the first Unloaded.
         Loaded += (_, _) =>
         {
-            _link ??= new EditorLink(Dispatcher, message => Status(true, message));
+            if (_link is null)
+            {
+                _link = new EditorLink(new AmlEditorSelection(),
+                    action => Dispatcher.BeginInvoke(action),
+                    message => Status(true, message),
+                    McpProbe.SelectFile);
+                // A watcher misses events on some shares, and a request is worthless late.
+                _poll = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+                    (_, _) => _link?.Poll(), Dispatcher);
+                _poll.Start();
+            }
             WarnWhenAssistantIsOutOfDate();
         };
         Unloaded += (_, _) =>
         {
+            _poll?.Stop();
+            _poll = null;
             _link?.Dispose();
             _link = null;
         };
@@ -44,7 +58,7 @@ public partial class McpPlugin : PluginViewBase
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_documentPath is not null) return;
-            if ((EditorLink.CurrentDocument() ?? EditorDocument.CurrentPath()) is { } open) UseDocument(open);
+            if ((new AmlEditorSelection().CurrentDocument ?? EditorDocument.CurrentPath()) is { } open) UseDocument(open);
         }), System.Windows.Threading.DispatcherPriority.Background);
 
         if (ServerPath() is { } exe)

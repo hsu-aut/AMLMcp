@@ -294,12 +294,16 @@ internal sealed class McpProbe : IDisposable
         };
     }
 
+    /// <summary>Where Claude Desktop keeps its configuration.</summary>
+    public static string ClaudeDesktopConfigFile { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json");
+
     /// <summary>True when Claude Desktop is configured exactly as this panel would configure it.</summary>
-    public static bool ClaudeDesktopIsCurrent(string exePath, string? root)
+    public static bool ClaudeDesktopIsCurrent(string exePath, string? root, string? configFile = null)
     {
         try
         {
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json");
+            var path = configFile ?? ClaudeDesktopConfigFile;
             if (!File.Exists(path)) return false;
             var stored = (JsonNode.Parse(File.ReadAllText(path)) as JsonObject)?["mcpServers"]?["aml"];
             var wanted = Configuration(exePath, root)["mcpServers"]!["aml"];
@@ -312,9 +316,9 @@ internal sealed class McpProbe : IDisposable
     }
 
     /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
-    public static string RegisterWithClaudeDesktop(string exePath, string? root)
+    public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null)
     {
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json");
+        var path = configFile ?? ClaudeDesktopConfigFile;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
         JsonObject configuration;
