@@ -970,3 +970,104 @@ public sealed class LibraryResourceTests : IDisposable
         Assert.InRange(text.Split('\n').Length, 10, 120);
     }
 }
+
+/// <summary>
+/// Three defects that real documents brought out: bracketed link partners, an attribute
+/// named RefDataSource, and two relations between the same pair of elements.
+/// </summary>
+public sealed class RealDocumentDefectTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+
+    public void Dispose() => _ws.Dispose();
+
+    private (DocumentStore Store, string Overview) Open(string fileName, string document)
+    {
+        var store = new DocumentStore();
+        return (store, AmlTools.OpenDocumentText(store, _ws.Write(fileName, document)));
+    }
+
+    /// <summary>
+    /// CAEX 2.15 wraps a link partner in brackets, [owner]:[interface], which the editor
+    /// writes by default. Every link of such a document used to have no partner.
+    /// </summary>
+    [Fact]
+    public void Link_partners_in_brackets_resolve_like_the_bare_form()
+    {
+        var (store, overview) = Open("bracketed.aml", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile FileName="bracketed.aml" SchemaVersion="2.15">
+              <InstanceHierarchy Name="Cell">
+                <InternalElement Name="Robot" ID="{33333333-0000-0000-0000-000000000001}">
+                  <ExternalInterface Name="Tool coupling" ID="{33333333-0000-0000-0000-0000000000a1}" />
+                </InternalElement>
+                <InternalElement Name="Gripper" ID="{33333333-0000-0000-0000-000000000002}">
+                  <ExternalInterface Name="Mount" ID="{33333333-0000-0000-0000-0000000000b1}" />
+                </InternalElement>
+                <InternalLink Name="Mounted"
+                              RefPartnerSideA="[{33333333-0000-0000-0000-000000000001}]:[Tool coupling]"
+                              RefPartnerSideB="[{33333333-0000-0000-0000-000000000002}]:[Mount]" />
+              </InstanceHierarchy>
+            </CAEXFile>
+            """);
+
+        Assert.Contains("1 total, 0 across hierarchies, 0 unresolved", overview);
+        Assert.Contains("no problems found", Answer.Text(AmlTools.CheckReferences(store)));
+        Assert.Contains("--link Mounted", Answer.Text(AmlTools.GetNeighbors(store, "Cell/Robot")));
+    }
+
+    /// <summary>
+    /// The attribute conventions are written RefSomething as often as refSomething, but an
+    /// attribute that declares an ID is not a reference to one.
+    /// </summary>
+    [Fact]
+    public void A_capital_Ref_names_a_reference_and_an_xs_ID_does_not()
+    {
+        var (store, overview) = Open("refs.aml", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile FileName="refs.aml" SchemaVersion="2.15">
+              <InstanceHierarchy Name="Plant">
+                <InternalElement Name="Variable" ID="{44444444-0000-0000-0000-000000000001}">
+                  <Attribute Name="RefDataSource" AttributeDataType="xs:string"><Value>{44444444-0000-0000-0000-000000000002}</Value></Attribute>
+                  <Attribute Name="Identification" AttributeDataType="xs:ID"><Value>{44444444-0000-0000-0000-000000000002}</Value></Attribute>
+                </InternalElement>
+                <InternalElement Name="Source" ID="{44444444-0000-0000-0000-000000000002}" />
+              </InstanceHierarchy>
+            </CAEXFile>
+            """);
+
+        Assert.Contains("1 resolved", overview);
+        var neighbours = Answer.Text(AmlTools.GetNeighbors(store, "Plant/Variable"));
+        Assert.Contains("--RefDataSource-->  Plant/Source", neighbours);
+        Assert.DoesNotContain("Identification", neighbours);
+    }
+
+    /// <summary>
+    /// Two elements can be related twice, and which relation it is carries the meaning:
+    /// one points at the other and is pointed back at. Only one of them used to be reported.
+    /// </summary>
+    [Fact]
+    public void Two_relations_between_the_same_pair_are_both_reported()
+    {
+        var (store, _) = Open("both-ways.aml", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile FileName="both-ways.aml" SchemaVersion="2.15">
+              <InstanceHierarchy Name="Process">
+                <InternalElement Name="Step" ID="{66666666-0000-0000-0000-000000000001}">
+                  <Attribute Name="refObj" AttributeDataType="xs:string"><Value>{66666666-0000-0000-0000-000000000002}</Value></Attribute>
+                </InternalElement>
+                <InternalElement Name="Operator" ID="{66666666-0000-0000-0000-000000000002}">
+                  <Attribute Name="refProcess" AttributeDataType="xs:string"><Value>{66666666-0000-0000-0000-000000000001}</Value></Attribute>
+                </InternalElement>
+              </InstanceHierarchy>
+            </CAEXFile>
+            """);
+
+        var result = AmlTools.GetNeighbors(store, "Process/Step");
+        var text = Answer.Text(result);
+
+        Assert.Contains("--refObj-->  Process/Operator", text);
+        Assert.Contains("<--refProcess--  Process/Operator", text);
+        Assert.Equal(2, Answer.Data(result).GetProperty("total").GetInt32());
+    }
+}

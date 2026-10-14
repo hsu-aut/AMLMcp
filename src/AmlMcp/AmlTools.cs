@@ -190,6 +190,9 @@ public static class AmlTools
     {
         var sb = new StringBuilder($"Neighbours of {PathOf(start)} (id={IdOf(start)}), depth {depth}:\n");
         var seen = new HashSet<XElement> { start };
+        // Edges are reported even when the partner was reached before, because two elements
+        // can be connected twice and in both directions; only the walk is deduplicated.
+        var walked = new HashSet<(XElement From, XElement To, string Kind, string Detail)>();
         var frontier = new List<XElement> { start };
         var reported = 0;
 
@@ -200,8 +203,8 @@ public static class AmlTools
             {
                 foreach (var edge in m.EdgesOf(node, includeContainment))
                 {
-                    if (!seen.Add(edge.Target)) continue;
-                    next.Add(edge.Target);
+                    if (!walked.Add((node, edge.Target, edge.Kind, edge.Detail))) continue;
+                    if (seen.Add(edge.Target)) next.Add(edge.Target);
                     var cross = HierarchyNameOf(edge.Target) != HierarchyNameOf(node);
                     if (crossHierarchyOnly && !cross) continue;
                     collect?.Add(new NeighborInfo(level, edge.Kind, edge.Detail,

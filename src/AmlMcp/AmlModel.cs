@@ -581,8 +581,13 @@ public sealed class AmlModel
 
         if (Options.StrictConventions) return false;
 
+        // An attribute that declares an ID is not a reference to one.
+        if (dataType.Equals("xs:ID", StringComparison.OrdinalIgnoreCase)) return false;
+
         var name = NameOf(attribute);
-        var namedLikeReference = name.Length > 3 && name.StartsWith("ref", StringComparison.Ordinal) && char.IsUpper(name[3]);
+        var namedLikeReference = name.Length > 3
+                                 && name.StartsWith("ref", StringComparison.OrdinalIgnoreCase)
+                                 && char.IsUpper(name[3]);
         if (!namedLikeReference) return false;
         return ById.ContainsKey(NormId(value)) || Guid.TryParse(NormId(value), out _);
     }
@@ -701,6 +706,25 @@ public sealed class AmlModel
         return _plainIndex.TryGetValue(plain, out var tolerant) ? tolerant : null;
     }
 
+    /// <summary>The last ':' that separates owner and interface, ignoring any inside brackets.</summary>
+    private static int LastSeparator(string side)
+    {
+        var depth = 0;
+        for (var i = side.Length - 1; i >= 0; i--)
+        {
+            if (side[i] == ']') depth++;
+            else if (side[i] == '[') depth--;
+            else if (side[i] == ':' && depth == 0) return i;
+        }
+        return -1;
+    }
+
+    private static string Unbracket(string part)
+    {
+        var trimmed = part.Trim();
+        return trimmed.Length > 1 && trimmed[0] == '[' && trimmed[^1] == ']' ? trimmed[1..^1] : trimmed;
+    }
+
     /// <summary>
     /// Splits a class path into alias and plain path. A segment in square brackets is a
     /// name that may itself contain '/' or '@', as in [ATL_http://opcfoundation.org/UA/]/[NodeId].
@@ -802,10 +826,13 @@ public sealed class AmlModel
         if (string.IsNullOrWhiteSpace(side)) return null;
         if (ById.TryGetValue(NormId(side), out var byId) && byId.Name == C + "ExternalInterface") return byId;
 
-        var colon = side.LastIndexOf(':');
+        // The legacy form is owner:interface, and either part may be wrapped in brackets,
+        // which CAEX uses when a name contains a separator: [ID]:[Interface name].
+        var colon = LastSeparator(side);
         if (colon <= 0) return null;
-        var ownerRef = side[..colon];
-        var interfaceName = side[(colon + 1)..];
+        var ownerRef = Unbracket(side[..colon]);
+        var interfaceName = Unbracket(side[(colon + 1)..]);
+        if (ById.TryGetValue(NormId(side), out var bracketed) && bracketed.Name == C + "ExternalInterface") return bracketed;
         var owner = ById.TryGetValue(NormId(ownerRef), out var o) ? o : FindByPath(ownerRef);
         return owner?.Descendants(C + "ExternalInterface")
             .FirstOrDefault(i => string.Equals(NameOf(i), interfaceName, StringComparison.OrdinalIgnoreCase));
