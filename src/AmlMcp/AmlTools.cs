@@ -506,6 +506,11 @@ public static class AmlTools
         var e = m.ResolveElement(element);
         var sb = new StringBuilder();
 
+        // An interface ID resolves to its owner. Say so, or the answer looks like the
+        // wrong object, and show what the interface itself carries.
+        var asked = m.ById.GetValueOrDefault(NormId(element.Trim()));
+        var askedInterface = asked?.Name.LocalName == "ExternalInterface" ? asked : null;
+
         sb.AppendLine($"{NameOf(e)}  ({e.Name.LocalName})");
         sb.AppendLine($"  id: {IdOf(e)}");
         sb.AppendLine($"  path: {DisplayPathOf(e)}");
@@ -515,6 +520,21 @@ public static class AmlTools
         if (m.ElementsByDuplicateId.GetValueOrDefault(NormId(IdOf(e))) is { Count: > 1 } sameId)
             sb.AppendLine($"  note: {sameId.Count} elements carry this ID. This card is about {DisplayPathOf(sameId[0])}; " +
                           $"the others are {string.Join(", ", sameId.Skip(1).Select(DisplayPathOf))} and cannot be addressed by ID");
+
+        if (askedInterface is not null)
+        {
+            sb.AppendLine($"  the ID names the interface {NameOf(askedInterface)} [{InterfaceClassLabel(m, askedInterface)}] " +
+                          "of this element; this card is about the element that owns it");
+            var own = new List<string>();
+            var hiddenOnInterface = 0;
+            CollectAttributes(m, askedInterface, "", includeLayout, own, ref hiddenOnInterface);
+            if (own.Count > 0)
+            {
+                sb.AppendLine($"  attributes of the interface {NameOf(askedInterface)}:");
+                foreach (var line in own.Take(30)) sb.AppendLine("    " + line);
+                if (own.Count > 30) sb.AppendLine($"    ... {own.Count - 30} more");
+            }
+        }
 
         if (m.MirrorReferenceOf(e) is { } masterId)
         {
@@ -565,16 +585,21 @@ public static class AmlTools
         }
 
         var connections = m.EdgesOf(e, includeContainment: false).ToList();
+        // A link whose two sides belong to this element has no partner to list, but it
+        // is in the document and used to disappear entirely.
+        var selfLinks = m.Links.Where(l => l.OwnerA is not null && l.OwnerA == l.OwnerB && l.OwnerA == e).ToList();
         if (connections.Count > 0)
         {
             sb.AppendLine($"  connections ({connections.Count}):");
             foreach (var c in connections.Take(60)) sb.AppendLine("    " + FormatEdge(m, e, c));
             if (connections.Count > 60) sb.AppendLine($"    ... {connections.Count - 60} more");
         }
-        else
+        else if (selfLinks.Count == 0)
         {
             sb.AppendLine("  connections: none");
         }
+        foreach (var l in selfLinks)
+            sb.AppendLine($"  link {l.Name} runs between two interfaces of this element: {NameOf(l.InterfaceA)} -> {NameOf(l.InterfaceB)}");
 
         foreach (var r in m.Refs.Where(r => !r.Resolved && AnchorOf(r.Source) == e))
             sb.AppendLine($"  dangling reference: {r.AttributePath} = {r.Value}");
@@ -621,9 +646,9 @@ public static class AmlTools
         chain.Reverse();
 
         var sb = new StringBuilder($"Path with {chain.Count} step(s):\n");
-        sb.AppendLine($"  {PathOf(source)}  [{HierarchyNameOf(source)}]");
+        sb.AppendLine($"  {PathOf(source)}  [{HierarchyNameOf(source)}]{IdSuffix(source)}");
         foreach (var (_, edge) in chain)
-            sb.AppendLine($"    {EdgeVerb(edge)}  {PathOf(edge.Target)}  [{HierarchyNameOf(edge.Target)}]  id={IdOf(edge.Target)}");
+            sb.AppendLine($"    {EdgeVerb(edge)}  {PathOf(edge.Target)}  [{HierarchyNameOf(edge.Target)}]{IdSuffix(edge.Target)}");
         return sb.ToString();
     }
 
@@ -880,17 +905,27 @@ public static class AmlTools
                                                   || c.PlainPath.Contains(text, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>CAEX 2.15 leaves an InstanceHierarchy without an ID; an empty "id=" says nothing.</summary>
+    private static string IdSuffix(XElement e) => IdOf(e) is { Length: > 0 } id ? $"  id={id}" : "";
+
     private static string InterfaceClassLabel(AmlModel m, XElement @interface)
     {
         var master = m.MirrorMasterOf(@interface);
         if (master is not null) return $"mirror of {PathOf(master)}";
-        return ShortClass((string?)@interface.Attribute("RefBaseClassPath"));
+        var label = ShortClass((string?)@interface.Attribute("RefBaseClassPath"));
+        if (label.Length > 0) return label;
+        // An interface class belongs in RefBaseClassPath. Some tools write the other one.
+        return (string?)@interface.Attribute("RefBaseSystemUnitPath") is { Length: > 0 } wrong
+            ? $"no interface class; RefBaseSystemUnitPath={wrong} is the wrong attribute for an interface"
+            : "no interface class";
     }
 
     private static string FormatEdge(AmlModel m, XElement from, Edge edge)
     {
-        var otherHierarchy = HierarchyNameOf(edge.Target);
-        var crossMarker = otherHierarchy != HierarchyNameOf(from) ? $"  [other hierarchy: {otherHierarchy}]" : "";
+        var there = HierarchyNameOf(edge.Target);
+        var here = HierarchyNameOf(from);
+        // Named in full, because at the second hop "from" is no longer the element asked about.
+        var crossMarker = there != here ? $"  [crosses from {here} to {there}]" : "";
         return $"{EdgeVerb(edge)}  {PathOf(edge.Target)}  [{ShortClass(m.ClassOf(edge.Target))}]  id={IdOf(edge.Target)}{crossMarker}";
     }
 

@@ -810,7 +810,13 @@ public sealed class AmlModel
             throw new McpException("Name an element: its ID, a path like Hierarchy/Parent/Child, or its name. Use find_elements to look one up.");
 
         if (ById.TryGetValue(NormId(q), out var byId))
+        {
+            // A class has an ID too, and its card is a different tool.
+            if (ClassKinds.Contains(byId.Name.LocalName))
+                throw new McpException(
+                    $"{q} is the {byId.Name.LocalName} {DisplayPathOf(byId)}, not an element. Ask get_class for it.");
             return byId.Name == C + "ExternalInterface" ? OwnerOf(byId) ?? byId : byId;
+        }
 
         if (q.Contains('/'))
         {

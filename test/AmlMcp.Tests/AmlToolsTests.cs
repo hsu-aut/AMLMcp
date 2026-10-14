@@ -172,7 +172,7 @@ public sealed class ReferenceTests : IDisposable
         var motor = AmlTools.ElementCard(_store, "Plant/Motor1");
 
         Assert.Contains("--refObj-->  Plant/Motor1", note);
-        Assert.Contains("[other hierarchy: Plant]", note);
+        Assert.Contains("[crosses from Groups to Plant]", note);
         Assert.Contains("<--refObj--  Groups/Note", motor);
     }
 

@@ -1347,3 +1347,75 @@ public sealed class ClassTemplateTests : IDisposable
         Assert.DoesNotContain("hierarchy: \n", card);
     }
 }
+
+/// <summary>
+/// Smaller things an element card used to pass over: a link inside one element, an ID
+/// that names an interface or a class, and an interface class in the wrong attribute.
+/// </summary>
+public sealed class ElementCardDetailTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="details.aml" xmlns="http://www.dke.de/CAEX">
+          <InterfaceClassLib Name="Interfaces">
+            <InterfaceClass Name="Coupling" />
+          </InterfaceClassLib>
+          <SystemUnitClassLib Name="Lib">
+            <SystemUnitClass Name="Loop" ID="{bbbb0000-0000-0000-0000-00000000c001}" />
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{bbbb0000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Bypass" ID="{bbbb0000-0000-0000-0000-000000000001}">
+              <ExternalInterface Name="In" ID="{bbbb0000-0000-0000-0000-0000000000a1}" RefBaseClassPath="Interfaces/Coupling">
+                <Attribute Name="NodeId" AttributeDataType="xs:string"><Value>ns=2;i=42</Value></Attribute>
+              </ExternalInterface>
+              <ExternalInterface Name="Out" ID="{bbbb0000-0000-0000-0000-0000000000a2}" RefBaseSystemUnitPath="Lib/Loop" />
+            </InternalElement>
+            <InternalLink Name="Shortcut"
+                          RefPartnerSideA="{bbbb0000-0000-0000-0000-0000000000a1}"
+                          RefPartnerSideB="{bbbb0000-0000-0000-0000-0000000000a2}" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public ElementCardDetailTests() => AmlTools.OpenDocumentText(_store, _ws.Write("details.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_link_between_two_interfaces_of_one_element_is_named()
+    {
+        var card = AmlTools.ElementCard(_store, "Plant/Bypass");
+
+        Assert.Contains("link Shortcut runs between two interfaces of this element: In -> Out", card);
+        Assert.DoesNotContain("connections: none", card);
+    }
+
+    [Fact]
+    public void An_interface_id_says_so_and_shows_what_the_interface_carries()
+    {
+        var card = AmlTools.ElementCard(_store, "{bbbb0000-0000-0000-0000-0000000000a1}");
+
+        Assert.Contains("the ID names the interface In", card);
+        Assert.Contains("attributes of the interface In:", card);
+        Assert.Contains("NodeId = ns=2;i=42", card);
+    }
+
+    [Fact]
+    public void An_interface_class_in_the_wrong_attribute_is_pointed_out()
+    {
+        Assert.Contains("RefBaseSystemUnitPath=Lib/Loop is the wrong attribute for an interface",
+            AmlTools.ElementCard(_store, "Plant/Bypass"));
+    }
+
+    [Fact]
+    public void The_id_of_a_class_sends_the_caller_to_get_class()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ElementCard(_store, "{bbbb0000-0000-0000-0000-00000000c001}"));
+
+        Assert.Contains("SystemUnitClass Lib/Loop", ex.Message);
+        Assert.Contains("get_class", ex.Message);
+    }
+}

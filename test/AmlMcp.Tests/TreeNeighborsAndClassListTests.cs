@@ -181,7 +181,7 @@ public sealed class NeighborTests : IDisposable
         // In a document that does connect two hierarchies the filter keeps them.
         var tricky = AmlTools.GetNeighbors(_tricky, "Plant/Motor1", crossHierarchyOnly: true);
         Assert.Equal(3, Answer.Data(tricky).GetProperty("total").GetInt32());
-        Assert.Contains("other hierarchy: Groups", Answer.Text(tricky));
+        Assert.Contains("crosses from Plant to Groups", Answer.Text(tricky));
     }
 
     [Fact]
