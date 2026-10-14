@@ -649,12 +649,9 @@ public static class AmlTools
         var problems = 0;
 
         // Mirror objects carry an ID instead of a class path and are checked separately.
-        var unresolvedClasses = m.Root.Descendants()
-            .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
-            .Where(x => !string.IsNullOrWhiteSpace(x.Value))
-            .Where(x => !IsMirrorSlot(x.Element, x.Attribute))
+        var unresolvedClasses = ClassReferences(m)
             .Where(x => m.ResolveClass(x.Value, x.Element) is null)
-            .GroupBy(x => x.Value!).ToList();
+            .GroupBy(x => x.Value).ToList();
 
         // Class paths that fail only because their library file is missing are
         // reported under that library, not as separate problems.
@@ -699,6 +696,18 @@ public static class AmlTools
             sb.AppendLine($"  unresolved class path: {g.Key}  (used {g.Count()}x, e.g. by {DisplayPathOf(g.First().Element)})");
         }
 
+        // An alias that does not carry the class is a modelling error, even where the
+        // plain path happens to match another library of the same name.
+        foreach (var g in ClassReferences(m).GroupBy(x => x.Value))
+        {
+            if (m.ResolvedPastItsAlias(g.Key) is not { } match) continue;
+            problems++;
+            var alias = SplitClassPath(g.Key).Alias!;
+            sb.AppendLine($"  alias does not carry the class: {g.Key}  (used {g.Count()}x, e.g. by " +
+                          $"{DisplayPathOf(g.First().Element)}); the library behind {alias} has no {match.PlainPath}, " +
+                          $"so {match.Key} from {match.Library} was read instead");
+        }
+
         foreach (var dm in m.DanglingMirrors)
         {
             problems++;
@@ -741,6 +750,14 @@ public static class AmlTools
     }
 
     // ------------------------------------------------------------------ formatting helpers
+
+    /// <summary>Every class reference of the document, without the mirror slots.</summary>
+    private static IEnumerable<(XElement Element, string Attribute, string Value)> ClassReferences(AmlModel m) =>
+        m.Root.Descendants()
+            .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Value))
+            .Where(x => !IsMirrorSlot(x.Element, x.Attribute))
+            .Select(x => (x.Element, x.Attribute, Value: x.Value!));
 
     /// <summary>The slot that holds either a mirror's master ID or a class name without its
     /// library. Both are checked separately from the class paths.</summary>

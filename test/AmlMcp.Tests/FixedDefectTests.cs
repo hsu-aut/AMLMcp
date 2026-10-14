@@ -1136,3 +1136,81 @@ public sealed class ClassCardCountTests : IDisposable
         Assert.Contains(", ... 5 more", card);
     }
 }
+
+/// <summary>
+/// A class path may carry an alias. If an ExternalReference declares that alias, the class
+/// has to be in the library it points at; the server used to read it from any library of
+/// the same name without a word.
+/// </summary>
+public sealed class AliasMismatchTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Library = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="PartLib.aml" xmlns="http://www.dke.de/CAEX">
+          <SystemUnitClassLib Name="Shared">
+            <SystemUnitClass Name="Bolt" />
+          </SystemUnitClassLib>
+        </CAEXFile>
+        """;
+
+    /// <summary>
+    /// Vendor declares PartLib.aml, which has Shared/Bolt but no Shared/Nut. The document
+    /// embeds a Shared library of its own, and that one does have a Nut.
+    /// </summary>
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="user.aml" xmlns="http://www.dke.de/CAEX">
+          <ExternalReference Path="PartLib.aml" Alias="Vendor" />
+          <AttributeTypeLib Name="OMG_DD_AttributeTypeLib">
+            <AttributeType Name="DD_Bounds" AttributeDataType="xs:string" />
+          </AttributeTypeLib>
+          <SystemUnitClassLib Name="Shared">
+            <SystemUnitClass Name="Nut" />
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{88888888-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Fastener" ID="{88888888-0000-0000-0000-000000000001}" RefBaseSystemUnitPath="Vendor@Shared/Nut">
+              <Attribute Name="Bounds" AttributeDataType="xs:string" RefAttributeType="OMG_DD@OMG_DD_AttributeTypeLib/DD_Bounds" />
+            </InternalElement>
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public AliasMismatchTests()
+    {
+        _ws.Write("PartLib.aml", Library);
+        AmlTools.OpenDocumentText(_store, _ws.Write("user.aml", Document));
+    }
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_declared_alias_that_does_not_carry_the_class_is_reported()
+    {
+        var check = AmlTools.CheckText(_store);
+        var data = Answer.Data(AmlTools.CheckReferences(_store));
+
+        Assert.Contains("alias does not carry the class: Vendor@Shared/Nut", check);
+        Assert.Contains("the library behind Vendor has no Shared/Nut", check);
+        Assert.Contains("Shared/Nut from Shared was read instead", check);
+        Assert.Contains(Answer.Strings(data.GetProperty("problems"), "kind"), k => k == "aliasWithoutTheClass");
+
+        // The class is still shown, so the element card stays usable.
+        Assert.Contains("class: Vendor@Shared/Nut", AmlTools.ElementCard(_store, "Plant/Fastener"));
+    }
+
+    /// <summary>
+    /// An alias no ExternalReference declares is how AML documents name the standard
+    /// libraries they embed. Reporting those would bury the real finding.
+    /// </summary>
+    [Fact]
+    public void An_alias_of_an_embedded_standard_library_is_left_alone()
+    {
+        var check = AmlTools.CheckText(_store);
+
+        Assert.DoesNotContain("OMG_DD", check);
+        Assert.Equal(1, check.Split('\n').Count(l => l.Contains("alias does not carry the class")));
+    }
+}

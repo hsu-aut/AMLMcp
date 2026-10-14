@@ -195,6 +195,19 @@ internal static class Structured
                 $"{r.Alias} -> {r.Path} ({r.Problem})"));
         foreach (var g in unresolved.Where(g => !missingAliases.Any(a => g.Key.StartsWith(a + "@", StringComparison.Ordinal))))
             problems.Add(new ProblemInfo("unresolvedClassPath", $"{g.Key} (used {g.Count()}x)"));
+        foreach (var g in m.Root.Descendants()
+                     .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
+                     .Where(x => !string.IsNullOrWhiteSpace(x.Value))
+                     .Where(x => !(BaseReferenceWithoutPath(x.Element) is not null &&
+                                   ((x.Attribute == "RefBaseSystemUnitPath" && x.Element.Name.LocalName == "InternalElement") ||
+                                    (x.Attribute == "RefBaseClassPath" && x.Element.Name.LocalName == "ExternalInterface"))))
+                     .GroupBy(x => x.Value!))
+        {
+            if (m.ResolvedPastItsAlias(g.Key) is not { } match) continue;
+            problems.Add(new ProblemInfo("aliasWithoutTheClass",
+                $"{g.Key} (used {g.Count()}x) was read from {match.Key} in {match.Library}"));
+        }
+
         foreach (var dm in m.DanglingMirrors)
             problems.Add(m.ClassByName(dm.MasterId) is { } likely
                 ? new ProblemInfo("classPathWithoutLibrary", $"{PathOf(dm.Mirror)} refers to {dm.MasterId}, probably {likely.Key}")

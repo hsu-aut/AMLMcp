@@ -719,6 +719,27 @@ public sealed class AmlModel
         return _plainIndex.TryGetValue(plain, out var tolerant) ? tolerant : null;
     }
 
+    /// <summary>True when an ExternalReference of the document declares this alias.</summary>
+    public bool AliasIsDeclared(string alias) =>
+        ExternalRefs.Any(r => string.Equals(r.Alias, alias, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The class a reference ends up at although the library its alias declares does not
+    /// carry it: the plain path matched a library of the same name, which need not be the
+    /// one meant. Resolving it keeps documents readable; the reference check says so.
+    /// An alias no ExternalReference declares is left alone, because that is how AML
+    /// documents name the standard libraries they embed.
+    /// </summary>
+    public ClassInfo? ResolvedPastItsAlias(string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || Classes.ContainsKey(reference)) return null;
+        var (alias, plain, _) = SplitClassPath(reference.Trim());
+        if (alias is null || !AliasIsDeclared(alias) || Classes.ContainsKey(alias + "@" + plain)) return null;
+        // A library that could not be read at all is reported there, not here.
+        if (ExternalRefs.Any(r => !r.Loaded && string.Equals(r.Alias, alias, StringComparison.OrdinalIgnoreCase))) return null;
+        return _plainIndex.TryGetValue(plain, out var tolerant) ? tolerant : null;
+    }
+
     /// <summary>The last ':' that separates owner and interface, ignoring any inside brackets.</summary>
     private static int LastSeparator(string side)
     {
