@@ -14,7 +14,7 @@ internal static class Structured
         attribute.Element(C + "Value") is null && attribute.Element(C + "DefaultValue") is not null;
 
     public static ElementRef Ref(AmlModel m, XElement e) =>
-        new(IdOf(e), NameOf(e), PathOf(e), HierarchyNameOf(e), m.ClassOf(e), MirrorReferenceOf(e) is not null);
+        new(IdOf(e), NameOf(e), PathOf(e), HierarchyNameOf(e), m.ClassOf(e), m.MirrorReferenceOf(e) is not null);
 
     public static DocumentInfo Document(AmlModel m)
     {
@@ -27,7 +27,7 @@ internal static class Structured
                 .Select(g => new ClassCountInfo(g.Key, g.Count()))
                 .ToList();
             return new HierarchyInfo(NameOf(ih), IdOf(ih), elements.Count,
-                elements.Count(e => MirrorReferenceOf(e) is not null), DescriptionOf(ih), byClass);
+                elements.Count(e => m.MirrorReferenceOf(e) is not null), DescriptionOf(ih), byClass);
         }).ToList();
 
         var resolvedRefs = m.Refs.Where(r => r.Resolved).ToList();
@@ -129,6 +129,7 @@ internal static class Structured
                 (string?)inherited.Attribute.Attribute("Unit"), IsDefaultValue(inherited.Attribute), inherited.ClassKey));
         }
 
+        var users = m.UsersOf(cls);
         return new ClassDetailInfo(
             info.Key, info.Kind, info.Library, info.External, info.SourceFile, DescriptionOf(cls),
             m.ClassChain((string?)cls.Attribute("RefBaseClassPath")).Select(c => c.Key).ToList(),
@@ -137,7 +138,8 @@ internal static class Structured
             cls.Elements(C + "SupportedRoleClass").Select(r => (string?)r.Attribute("RefRoleClassPath") ?? "").ToList(),
             m.Classes.Values.Where(c => m.ResolveClass((string?)c.Element.Attribute("RefBaseClassPath"))?.Element == cls)
                 .Select(c => c.PlainPath).Distinct().ToList(),
-            m.Root.Descendants().Count(x => ClassReferenceAttributes.Any(a => m.ResolveClass((string?)x.Attribute(a))?.Element == cls)));
+            users.Elements,
+            users.Classes);
     }
 
     public static ElementListInfo Search(AmlModel m, string? query, string? classContains,
@@ -176,7 +178,7 @@ internal static class Structured
         var unresolved = m.Root.Descendants()
             .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
             .Where(x => !string.IsNullOrWhiteSpace(x.Value))
-            .Where(x => !(MirrorReferenceOf(x.Element) is not null &&
+            .Where(x => !(BaseReferenceWithoutPath(x.Element) is not null &&
                           ((x.Attribute == "RefBaseSystemUnitPath" && x.Element.Name.LocalName == "InternalElement") ||
                            (x.Attribute == "RefBaseClassPath" && x.Element.Name.LocalName == "ExternalInterface"))))
             .Where(x => m.ResolveClass(x.Value, x.Element) is null)

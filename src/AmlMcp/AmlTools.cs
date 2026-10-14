@@ -409,10 +409,14 @@ public static class AmlTools
         foreach (var ih in m.Hierarchies)
         {
             var elements = ih.Descendants(C + "InternalElement").ToList();
-            var mirrors = elements.Count(e => MirrorReferenceOf(e) is not null);
-            var byClass = elements.GroupBy(e => ShortClass(m.ClassOf(e)) is { Length: > 0 } s ? s : "(no class)")
-                .OrderByDescending(g => g.Count()).Take(6)
-                .Select(g => $"{g.Key} {g.Count()}");
+            var mirrors = elements.Count(e => m.MirrorReferenceOf(e) is not null);
+            var groups = elements.GroupBy(e => ShortClass(m.ClassOf(e)) is { Length: > 0 } s ? s : "(no class)")
+                .OrderByDescending(g => g.Count()).ToList();
+            var byClass = groups.Take(6).Select(g => $"{g.Key} {g.Count()}").ToList();
+            // The list is cut to keep the overview readable; say so rather than let a
+            // reader take the six for all of them.
+            if (groups.Count > byClass.Count)
+                byClass.Add($"... {groups.Count - byClass.Count} more class(es), ask list_classes");
             sb.AppendLine($"  {NameOf(ih)}: {elements.Count} elements{(mirrors > 0 ? $", {mirrors} of them mirrors" : "")}  [{string.Join(", ", byClass)}]");
             if (DescriptionOf(ih) is { } d) sb.AppendLine($"    {Shorten(d, 160)}");
         }
@@ -477,7 +481,7 @@ public static class AmlTools
         if (hits.Count == 0) return "No matching elements.";
         var sb = new StringBuilder($"{hits.Count} match(es){(hits.Count > limit ? $", showing {limit}" : "")}:\n");
         foreach (var e in hits.Take(limit))
-            sb.AppendLine($"  {PathOf(e)}  [{ShortClass(m.ClassOf(e))}]{(MirrorReferenceOf(e) is not null ? "  (mirror)" : "")}  id={IdOf(e)}");
+            sb.AppendLine($"  {PathOf(e)}  [{ShortClass(m.ClassOf(e))}]{(m.MirrorReferenceOf(e) is not null ? "  (mirror)" : "")}  id={IdOf(e)}");
         return sb.ToString();
     }
 
@@ -496,7 +500,7 @@ public static class AmlTools
         sb.AppendLine($"  path: {PathOf(e)}");
         sb.AppendLine($"  hierarchy: {HierarchyNameOf(e)}");
 
-        if (MirrorReferenceOf(e) is { } masterId)
+        if (m.MirrorReferenceOf(e) is { } masterId)
         {
             var master = m.MirrorMasterOf(e);
             sb.AppendLine(master is null
@@ -738,8 +742,10 @@ public static class AmlTools
 
     // ------------------------------------------------------------------ formatting helpers
 
+    /// <summary>The slot that holds either a mirror's master ID or a class name without its
+    /// library. Both are checked separately from the class paths.</summary>
     private static bool IsMirrorSlot(XElement element, string attribute) =>
-        MirrorReferenceOf(element) is not null &&
+        BaseReferenceWithoutPath(element) is not null &&
         ((attribute == "RefBaseSystemUnitPath" && element.Name.LocalName == "InternalElement") ||
          (attribute == "RefBaseClassPath" && element.Name.LocalName == "ExternalInterface"));
 
@@ -767,6 +773,7 @@ public static class AmlTools
         {
             sb.AppendLine("  attributes:");
             foreach (var line in attributeLines.Take(50)) sb.AppendLine("    " + line);
+            if (attributeLines.Count > 50) sb.AppendLine($"    ... {attributeLines.Count - 50} more");
         }
         if (hidden > 0) sb.AppendLine($"  ({hidden} layout attribute group(s) not shown)");
         AppendInherited(sb, m, cls, includeLayout: false);
@@ -779,11 +786,13 @@ public static class AmlTools
         var subclasses = m.Classes.Values
             .Where(c => m.ResolveClass((string?)c.Element.Attribute("RefBaseClassPath"))?.Element == cls)
             .Select(c => c.PlainPath).Distinct().ToList();
-        if (subclasses.Count > 0) sb.AppendLine($"  subclasses: {string.Join(", ", subclasses.Take(20))}");
+        if (subclasses.Count > 0)
+            sb.AppendLine($"  subclasses: {string.Join(", ", subclasses.Take(20))}"
+                          + (subclasses.Count > 20 ? $", ... {subclasses.Count - 20} more" : ""));
 
-        var uses = m.Root.Descendants()
-            .Count(e => ClassReferenceAttributes.Any(a => m.ResolveClass((string?)e.Attribute(a))?.Element == cls));
-        sb.AppendLine($"  used by {uses} element(s) in this document");
+        var (byElements, byClasses) = m.UsersOf(cls);
+        sb.AppendLine($"  used by {byElements} element(s) in this document"
+                      + (byClasses > 0 ? $", and by {byClasses} class(es) in the libraries" : ""));
         sb.AppendLine();
     }
 

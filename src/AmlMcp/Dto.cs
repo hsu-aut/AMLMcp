@@ -83,7 +83,8 @@ public sealed record ClassDetailInfo(
     IReadOnlyList<string> Interfaces,
     IReadOnlyList<string> SupportedRoles,
     IReadOnlyList<string> Subclasses,
-    int UsedByElements);
+    int UsedByElements,
+    int UsedByClasses);
 
 public sealed record ClassListInfo(int Total, int Shown, IReadOnlyList<ClassSummaryInfo> Classes);
 

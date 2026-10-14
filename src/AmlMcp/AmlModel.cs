@@ -540,7 +540,7 @@ public sealed class AmlModel
     {
         foreach (var el in Root.Descendants().Where(e => e.Name == C + "InternalElement" || e.Name == C + "ExternalInterface"))
         {
-            var masterId = MirrorReferenceOf(el);
+            var masterId = BaseReferenceWithoutPath(el);
             if (masterId is null) continue;
 
             if (!ById.TryGetValue(NormId(masterId), out var master))
@@ -593,11 +593,11 @@ public sealed class AmlModel
     }
 
     /// <summary>
-    /// CAEX mirror objects carry the master's ID instead of a class path in
-    /// RefBaseSystemUnitPath (elements) or RefBaseClassPath (interfaces). A class
-    /// path always contains '/', an ID never does.
+    /// The base reference of an element or interface when it holds no '/' and so cannot
+    /// be a class path: either a mirror's master ID, or a class name written without its
+    /// library. Which of the two it is, <see cref="MirrorReferenceOf"/> decides.
     /// </summary>
-    public static string? MirrorReferenceOf(XElement e)
+    public static string? BaseReferenceWithoutPath(XElement e)
     {
         var attributeName = e.Name.LocalName switch
         {
@@ -608,6 +608,19 @@ public sealed class AmlModel
         var value = attributeName is null ? null : ((string?)e.Attribute(attributeName))?.Trim();
         if (string.IsNullOrEmpty(value) || value.Contains('/')) return null;
         return value;
+    }
+
+    /// <summary>
+    /// The master ID of a mirror object. CAEX mirrors carry it in place of a class path.
+    /// A bare name that matches no ID but exactly one class is that class written without
+    /// its library, not a mirror: the element keeps its class, and the reference check
+    /// reports the missing library.
+    /// </summary>
+    public string? MirrorReferenceOf(XElement e)
+    {
+        var value = BaseReferenceWithoutPath(e);
+        if (value is null || ById.ContainsKey(NormId(value))) return value;
+        return ClassByName(value) is null ? value : null;
     }
 
     public XElement? MirrorMasterOf(XElement e)
@@ -862,6 +875,32 @@ public sealed class AmlModel
     /// <summary>The element a reference, link or mirror is conceptually attached to.</summary>
     public static XElement AnchorOf(XElement e) =>
         e.Name.LocalName == "ExternalInterface" ? OwnerOf(e) ?? e : e;
+
+    private static readonly HashSet<string> ObjectKinds = new()
+        { "InternalElement", "InstanceHierarchy", "SystemUnitClass", "RoleClass", "InterfaceClass", "AttributeType" };
+
+    /// <summary>
+    /// The object a class reference belongs to. An interface, a role requirement and a
+    /// supported role all state the class of the object that holds them.
+    /// </summary>
+    public static XElement ObjectOf(XElement e) =>
+        e.AncestorsAndSelf().FirstOrDefault(a => ObjectKinds.Contains(a.Name.LocalName)) ?? e;
+
+    /// <summary>
+    /// Who declares this class: elements in the instance hierarchies, and classes in the
+    /// libraries, which are the subclasses and whoever requires the class of them. An
+    /// object that names the class twice, say as a base class and as a role, counts once.
+    /// </summary>
+    public (int Elements, int Classes) UsersOf(XElement cls)
+    {
+        var users = Root.Descendants()
+            .Where(e => ClassReferenceAttributes.Any(a => ResolveClass((string?)e.Attribute(a), e)?.Element == cls))
+            .Select(ObjectOf)
+            .Distinct()
+            .ToList();
+        var inHierarchies = users.Count(u => u.AncestorsAndSelf(C + "InstanceHierarchy").Any());
+        return (inHierarchies, users.Count - inHierarchies);
+    }
 
     public static string? HierarchyNameOf(XElement? e) =>
         e is null ? null : NameOf(e.AncestorsAndSelf(C + "InstanceHierarchy").FirstOrDefault());

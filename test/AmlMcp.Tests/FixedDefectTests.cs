@@ -1071,3 +1071,68 @@ public sealed class RealDocumentDefectTests : IDisposable
         Assert.Equal(2, Answer.Data(result).GetProperty("total").GetInt32());
     }
 }
+
+/// <summary>
+/// A class card says how often the class is used and lists what belongs to it. Both used
+/// to mislead: subclasses were counted as elements, and long lists just stopped.
+/// </summary>
+public sealed class ClassCardCountTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    public ClassCardCountTests()
+    {
+        var attributes = string.Join("\n", Enumerable.Range(0, 60)
+            .Select(i => $"      <Attribute Name=\"A{i:00}\" AttributeDataType=\"xs:string\"><DefaultValue>{i}</DefaultValue></Attribute>"));
+        var subclasses = string.Join("\n", Enumerable.Range(0, 25)
+            .Select(i => $"    <SystemUnitClass Name=\"Small{i:00}\" RefBaseClassPath=\"Lib/Big\" />"));
+        var document = $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile SchemaVersion="3.0" FileName="big-class.aml" xmlns="http://www.dke.de/CAEX">
+              <RoleClassLib Name="Roles">
+                <RoleClass Name="Machine" />
+              </RoleClassLib>
+              <SystemUnitClassLib Name="Lib">
+                <SystemUnitClass Name="Big">
+            {{attributes}}
+                </SystemUnitClass>
+            {{subclasses}}
+              </SystemUnitClassLib>
+              <InstanceHierarchy Name="Plant">
+                <InternalElement Name="TheOne" ID="{77777777-0000-0000-0000-000000000001}" RefBaseSystemUnitPath="Lib/Big">
+                  <RoleRequirements RefBaseRoleClassPath="Roles/Machine" />
+                </InternalElement>
+              </InstanceHierarchy>
+            </CAEXFile>
+            """;
+        AmlTools.OpenDocumentText(_store, _ws.Write("big-class.aml", document));
+    }
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void Subclasses_are_not_counted_as_elements_that_use_the_class()
+    {
+        var card = AmlTools.ClassCard(_store, "Lib/Big");
+
+        Assert.Contains("used by 1 element(s) in this document, and by 25 class(es) in the libraries", card);
+    }
+
+    /// <summary>A role requirement states the class of the element that holds it, once.</summary>
+    [Fact]
+    public void An_element_that_requires_a_role_counts_once_for_that_role()
+    {
+        Assert.Contains("used by 1 element(s) in this document", AmlTools.ClassCard(_store, "Roles/Machine"));
+    }
+
+    [Fact]
+    public void A_card_that_leaves_something_out_says_how_much()
+    {
+        var card = AmlTools.ClassCard(_store, "Lib/Big");
+
+        Assert.Contains("... 10 more", card);
+        Assert.Contains("subclasses: ", card);
+        Assert.Contains(", ... 5 more", card);
+    }
+}
