@@ -71,6 +71,12 @@ public sealed class AmlModel
     public Dictionary<string, XElement> ById { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> DuplicateIds { get; } = new();
 
+    /// <summary>
+    /// Every element an ID was found on, for the IDs that appear more than once. Answers
+    /// use the first; the others would be unreachable without this.
+    /// </summary>
+    public Dictionary<string, List<XElement>> ElementsByDuplicateId { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>IDs that appear twice with different letter case. Treated as one object.</summary>
     public List<string> CaseVariantIds { get; } = new();
 
@@ -153,7 +159,12 @@ public sealed class AmlModel
                 if (string.IsNullOrWhiteSpace(id)) continue;
                 if (ById.TryAdd(NormId(id), el)) { _rawIds[NormId(id)] = id.Trim(); continue; }
                 if (string.Equals(_rawIds.GetValueOrDefault(NormId(id)), id.Trim(), StringComparison.Ordinal))
+                {
                     DuplicateIds.Add(id);
+                    if (!ElementsByDuplicateId.TryGetValue(NormId(id), out var all))
+                        ElementsByDuplicateId[NormId(id)] = all = new List<XElement> { ById[NormId(id)] };
+                    all.Add(el);
+                }
                 else
                     CaseVariantIds.Add(id);
             }
@@ -803,8 +814,12 @@ public sealed class AmlModel
 
         if (q.Contains('/'))
         {
-            var byPath = FindByPath(q);
-            if (byPath is not null) return byPath;
+            var byPath = FindAllByPath(q);
+            if (byPath.Count == 1) return byPath[0];
+            if (byPath.Count > 1)
+                throw new McpException(
+                    $"The path '{q}' leads to {byPath.Count} elements. Use one of their IDs:\n" +
+                    string.Join("\n", byPath.Take(15).Select(e => $"  {PathOf(e)}  [{ShortClass(ClassOf(e))}]  id={IdOf(e)}")));
         }
 
         var matches = Root.Descendants()
@@ -819,10 +834,17 @@ public sealed class AmlModel
         throw new McpException($"No element '{q}'. Use an ID, a path like Hierarchy/Parent/Child, or find_elements.");
     }
 
-    public XElement? FindByPath(string path)
+    public XElement? FindByPath(string path) => FindAllByPath(path).FirstOrDefault();
+
+    /// <summary>
+    /// Every element a path leads to. Names are not unique in CAEX, so two siblings can
+    /// carry the same one and a path can mean either of them.
+    /// </summary>
+    public List<XElement> FindAllByPath(string path)
     {
+        var found = new List<XElement>();
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0) return null;
+        if (parts.Length == 0) return found;
 
         static bool Is(XElement e, string name) => string.Equals(NameOf(e), name, StringComparison.OrdinalIgnoreCase);
 
@@ -830,14 +852,14 @@ public sealed class AmlModel
         if (starts.Count == 0)
             starts = Hierarchies.SelectMany(h => h.Elements(C + "InternalElement")).Where(e => Is(e, parts[0])).ToList();
 
-        foreach (var start in starts)
+        var level = starts;
+        for (var i = 1; i < parts.Length; i++)
         {
-            XElement? current = start;
-            for (var i = 1; i < parts.Length && current is not null; i++)
-                current = current.Elements(C + "InternalElement").FirstOrDefault(e => Is(e, parts[i]));
-            if (current is not null) return current;
+            var next = parts[i];
+            level = level.SelectMany(e => e.Elements(C + "InternalElement")).Where(e => Is(e, next)).ToList();
         }
-        return null;
+        found.AddRange(level.Distinct());
+        return found;
     }
 
     public IEnumerable<Edge> EdgesOf(XElement element, bool includeContainment = true)

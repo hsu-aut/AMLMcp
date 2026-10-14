@@ -1214,3 +1214,65 @@ public sealed class AliasMismatchTests : IDisposable
         Assert.Equal(1, check.Split('\n').Count(l => l.Contains("alias does not carry the class")));
     }
 }
+
+/// <summary>
+/// CAEX does not make names unique, and some documents reuse an ID. Both used to be
+/// answered with the first element found and nothing said about the others.
+/// </summary>
+public sealed class AmbiguityTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="twins.aml" xmlns="http://www.dke.de/CAEX">
+          <InstanceHierarchy Name="Plant" ID="{99990000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Assembly" ID="{99990000-0000-0000-0000-000000000001}">
+              <InternalElement Name="Spring" ID="{99990000-0000-0000-0000-000000000002}" />
+              <InternalElement Name="Spring" ID="{99990000-0000-0000-0000-000000000003}" />
+            </InternalElement>
+            <InternalElement Name="First" ID="{99990000-0000-0000-0000-00000000000a}" />
+            <InternalElement Name="Second" ID="{99990000-0000-0000-0000-00000000000a}" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public AmbiguityTests() => AmlTools.OpenDocumentText(_store, _ws.Write("twins.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_path_that_leads_to_two_elements_is_refused_with_both_ids()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ElementCard(_store, "Plant/Assembly/Spring"));
+
+        Assert.Contains("leads to 2 elements", ex.Message);
+        Assert.Contains("{99990000-0000-0000-0000-000000000002}", ex.Message);
+        Assert.Contains("{99990000-0000-0000-0000-000000000003}", ex.Message);
+    }
+
+    [Fact]
+    public void An_unambiguous_path_still_answers()
+    {
+        Assert.Contains("path: Plant/Assembly", AmlTools.ElementCard(_store, "Plant/Assembly"));
+    }
+
+    [Fact]
+    public void A_repeated_id_names_both_elements_and_says_which_one_answers()
+    {
+        var check = AmlTools.CheckText(_store);
+        var card = AmlTools.ElementCard(_store, "{99990000-0000-0000-0000-00000000000a}");
+        var data = Answer.Data(AmlTools.CheckReferences(_store));
+
+        Assert.Contains("duplicate ID: {99990000-0000-0000-0000-00000000000a}  (Plant/First, Plant/Second", check);
+        Assert.Contains("answers about this ID are about Plant/First", check);
+
+        Assert.Contains("2 elements carry this ID", card);
+        Assert.Contains("the others are Plant/Second", card);
+
+        Assert.Contains(data.GetProperty("problems").EnumerateArray(),
+            p => p.GetProperty("kind").GetString() == "duplicateId"
+                 && p.GetProperty("message").GetString()!.Contains("Plant/Second"));
+    }
+}

@@ -499,6 +499,9 @@ public static class AmlTools
         sb.AppendLine($"  id: {IdOf(e)}");
         sb.AppendLine($"  path: {PathOf(e)}");
         sb.AppendLine($"  hierarchy: {HierarchyNameOf(e)}");
+        if (m.ElementsByDuplicateId.GetValueOrDefault(NormId(IdOf(e))) is { Count: > 1 } sameId)
+            sb.AppendLine($"  note: {sameId.Count} elements carry this ID. This card is about {DisplayPathOf(sameId[0])}; " +
+                          $"the others are {string.Join(", ", sameId.Skip(1).Select(DisplayPathOf))} and cannot be addressed by ID");
 
         if (m.MirrorReferenceOf(e) is { } masterId)
         {
@@ -732,7 +735,10 @@ public static class AmlTools
         foreach (var id in m.DuplicateIds.Distinct())
         {
             problems++;
-            sb.AppendLine($"  duplicate ID: {id}");
+            var all = m.ElementsByDuplicateId.GetValueOrDefault(NormId(id)) ?? new List<XElement>();
+            sb.AppendLine($"  duplicate ID: {id}" + (all.Count == 0
+                ? ""
+                : $"  ({string.Join(", ", all.Select(DisplayPathOf))}; answers about this ID are about {DisplayPathOf(all[0])})"));
         }
 
         foreach (var id in m.CaseVariantIds.Distinct())

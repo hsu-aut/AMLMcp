@@ -217,7 +217,10 @@ internal static class Structured
         foreach (var r in m.Refs.Where(r => !r.Resolved))
             problems.Add(new ProblemInfo("danglingReference", $"{PathOf(r.Source)}.{r.AttributePath} = {r.Value}"));
         foreach (var id in m.DuplicateIds.Distinct())
-            problems.Add(new ProblemInfo("duplicateId", id));
+            problems.Add(new ProblemInfo("duplicateId",
+                m.ElementsByDuplicateId.GetValueOrDefault(NormId(id)) is { Count: > 0 } all
+                    ? $"{id} ({string.Join(", ", all.Select(DisplayPathOf))})"
+                    : id));
         foreach (var id in m.CaseVariantIds.Distinct())
             notes.Add(new ProblemInfo("idCaseVariant", $"{id} appears with different letter case; treated as one object"));
 
