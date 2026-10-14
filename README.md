@@ -87,13 +87,13 @@ nuget.org the PlugIn Manager finds it by itself. The editor is not needed for an
 |---|---|
 | `open_aml_document` | What is in this file: container parts, external libraries and whether they resolve, class libraries, hierarchies with element counts, and how the hierarchies are connected. Without a path it reads the document the editor has open |
 | `get_tree` | The containment tree of a hierarchy or element |
-| `find_elements` | Elements by text, class or role; class and role filters follow inheritance |
-| `get_element` | One element: class, roles, own and inherited attributes, interfaces, children, and every link, reference and mirror relation in both directions |
+| `find_elements` | Elements by text, class or role; class and role filters follow inheritance. Searches the instance hierarchies and counts what it found in the class libraries apart |
+| `get_element` | One element: class, roles, own and inherited attributes, interfaces, children, and every link, reference and mirror relation in both directions. An interface ID answers about its owner and says so |
 | `get_neighbors` | What an element is connected to, up to four hops, optionally only across hierarchies |
 | `find_path` | The shortest chain of connections between two elements |
 | `get_class` | One class: inheritance, attributes with defaults, interfaces, subclasses, how often it is used |
 | `list_classes` | The classes of all libraries available to the document |
-| `check_references` | Class paths that do not resolve, missing libraries, links without partners, dangling references, mirrors without master, duplicate IDs |
+| `check_references` | Class paths that do not resolve, missing libraries, an alias whose library does not carry the class, links without partners, dangling references, mirrors without master, duplicate IDs with the elements behind them |
 | `show_in_editor` | Expands and selects one element in the AutomationML Editor the user is working in, so an answer becomes a place in their tree. The editor confirms; without an answer the tool reports that nothing was shown |
 
 Each tool returns text for the model and `structuredContent` for programs; the record types are in
@@ -123,7 +123,10 @@ restriction. Without `--root` the server reads whatever the user who started it 
   missing library is reported once, with the class paths it takes down with it.
 - **Class inheritance**: attributes an element does not set itself are shown with their defaults and the
   class they come from.
-- **Mirror objects** are navigable in both directions and are not reported as broken class paths.
+- **Mirror objects** are navigable in both directions and are not reported as broken class paths. A base
+  class written without its library is a class, not a mirror; the check says which library is missing.
+- **Names are not unique** in CAEX. A path that leads to two elements is refused with both IDs, and an
+  ID used twice names every element that carries it.
 - **Layout** attributes (bounds, waypoints, port coordinates) are hidden unless asked for.
 
 Graph traversal happens in the server, not in the model, which keeps small local models usable.
