@@ -81,8 +81,12 @@ public sealed record ServerOptions(IReadOnlyList<string> Roots, bool StrictConve
         if (Roots.Count == 0) return true;
         var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullPath));
         return Roots.Any(root =>
-            candidate.Equals(root, StringComparison.OrdinalIgnoreCase) ||
-            candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        {
+            // A drive root already ends in a separator, and "C:\\" matches nothing.
+            var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+            return candidate.Equals(root, StringComparison.OrdinalIgnoreCase)
+                   || candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     public string RootsDescription => Roots.Count == 0 ? "no restriction" : string.Join(", ", Roots);

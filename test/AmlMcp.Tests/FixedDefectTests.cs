@@ -1419,3 +1419,30 @@ public sealed class ElementCardDetailTests : IDisposable
         Assert.Contains("get_class", ex.Message);
     }
 }
+
+/// <summary>A whole drive as the root used to fence out everything on it.</summary>
+public sealed class DriveRootTests
+{
+    [Fact]
+    public void A_drive_root_lets_through_what_is_on_that_drive()
+    {
+        var drive = Path.GetPathRoot(Path.GetTempPath())!;
+        var options = ServerOptions.Parse(new[] { "--root", drive });
+
+        Assert.True(options.Allows(Path.Combine(Path.GetTempPath(), "model.aml")));
+        Assert.True(options.Allows(drive));
+    }
+
+    [Fact]
+    public void A_root_with_a_trailing_separator_fences_the_same_as_one_without()
+    {
+        var directory = Path.GetTempPath();
+        var withSeparator = ServerOptions.Parse(new[] { "--root", directory });
+        var without = ServerOptions.Parse(new[] { "--root", Path.TrimEndingDirectorySeparator(directory) });
+        var file = Path.Combine(directory, "sub", "model.aml");
+
+        Assert.True(withSeparator.Allows(file));
+        Assert.True(without.Allows(file));
+        Assert.False(without.Allows(Path.Combine(Path.TrimEndingDirectorySeparator(directory) + "-other", "model.aml")));
+    }
+}
