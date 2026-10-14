@@ -49,8 +49,10 @@ Console.Error.WriteLine($"aml-mcp: readable directories: {options.RootsDescripti
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// stdout belongs to the MCP protocol; all logging goes to stderr.
+// stdout belongs to the MCP protocol; all logging goes to stderr. Only what the operator
+// needs to see: a request-by-request log of a read-only server is noise in their client.
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<DocumentStore>();

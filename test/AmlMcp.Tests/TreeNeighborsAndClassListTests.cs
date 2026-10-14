@@ -88,9 +88,9 @@ public sealed class TreeTests : IDisposable
     [Fact]
     public void The_tree_of_an_unknown_element_says_so()
     {
-        var ex = Assert.Throws<ModelContextProtocol.McpException>(() => AmlTools.GetTree(_rich, "NoSuchThing"));
+        var message = Answer.Error(AmlTools.GetTree(_rich, "NoSuchThing"));
 
-        Assert.Contains("No element 'NoSuchThing'", ex.Message);
+        Assert.Contains("No element 'NoSuchThing'", message);
     }
 }
 

@@ -505,3 +505,108 @@ public sealed class ListMarkerTests : IDisposable
         Assert.Equal(160, Answer.Data(result).GetProperty("total").GetInt32());
     }
 }
+
+/// <summary>
+/// A refusal reaches the client as an error result. Thrown, it would also reach the client,
+/// but the server would log an ordinary "no such element" as an unhandled exception.
+/// </summary>
+public sealed class RefusalTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    public RefusalTests() =>
+        AmlTools.OpenAmlDocument(_store, _ws.Write("small.aml", Fixtures.Caex215));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void An_unknown_element_is_an_error_result_not_an_exception()
+    {
+        var result = AmlTools.GetElement(_store, "NoSuchElement");
+
+        Assert.True(result.IsError);
+        Assert.Contains("No element 'NoSuchElement'", Answer.Text(result));
+    }
+
+    [Fact]
+    public void An_answer_is_not_marked_as_an_error()
+    {
+        Assert.NotEqual(true, AmlTools.GetElement(_store, "Plant/Pump").IsError);
+    }
+}
+
+/// <summary>Walking further must not report the way back as a new neighbour.</summary>
+public sealed class NeighbourWalkTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="chain.aml" xmlns="http://www.dke.de/CAEX">
+          <AttributeTypeLib Name="AutomationML_ObjectReferences_AttributeTypeLib">
+            <AttributeType Name="refObj" AttributeDataType="xs:string" />
+          </AttributeTypeLib>
+          <InstanceHierarchy Name="Plant" ID="{16160000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="A" ID="{16160000-0000-0000-0000-000000000001}">
+              <Attribute Name="refObj" AttributeDataType="xs:string" RefAttributeType="ObjectReferences@AutomationML_ObjectReferences_AttributeTypeLib/refObj"><Value>{16160000-0000-0000-0000-000000000002}</Value></Attribute>
+            </InternalElement>
+            <InternalElement Name="B" ID="{16160000-0000-0000-0000-000000000002}">
+              <Attribute Name="refObj" AttributeDataType="xs:string" RefAttributeType="ObjectReferences@AutomationML_ObjectReferences_AttributeTypeLib/refObj"><Value>{16160000-0000-0000-0000-000000000003}</Value></Attribute>
+            </InternalElement>
+            <InternalElement Name="C" ID="{16160000-0000-0000-0000-000000000003}" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public NeighbourWalkTests() => AmlTools.OpenDocumentText(_store, _ws.Write("chain.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void The_second_hop_reports_what_is_new_and_not_the_step_it_came_from()
+    {
+        var result = AmlTools.GetNeighbors(_store, "Plant/A", depth: 2);
+        var text = Answer.Text(result);
+
+        Assert.Contains("hop 1 from A: --refObj-->  Plant/B", text);
+        Assert.Contains("hop 2 from B: --refObj-->  Plant/C", text);
+        Assert.DoesNotContain("Plant/A", text.Split('\n').Skip(2).Aggregate("", (a, b) => a + b));
+        Assert.Equal(2, Answer.Data(result).GetProperty("total").GetInt32());
+    }
+}
+
+/// <summary>The class kinds are named as CAEX names them, however the caller writes it.</summary>
+public sealed class ClassKindTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    public ClassKindTests() => AmlTools.OpenDocumentText(_store, _ws.Write("rich.aml", Fixtures.Rich30));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Theory]
+    [InlineData("RoleClass")]
+    [InlineData("roleclass")]
+    [InlineData("role")]
+    [InlineData("Role Class")]
+    public void A_kind_is_recognised_however_it_is_written(string kind)
+    {
+        Assert.Contains("RichRoleLib/Station", AmlTools.ListClassesText(_store, kind: kind));
+    }
+
+    /// <summary>
+    /// "No matching classes" for a kind that does not exist would read as a statement
+    /// about the document.
+    /// </summary>
+    [Fact]
+    public void A_kind_that_does_not_exist_is_refused_with_the_four_that_do()
+    {
+        var message = Answer.Error(AmlTools.ListClasses(_store, kind: "widget"));
+
+        Assert.Contains("Unknown kind 'widget'", message);
+        Assert.Contains("RoleClass, SystemUnitClass, InterfaceClass or AttributeType", message);
+    }
+}

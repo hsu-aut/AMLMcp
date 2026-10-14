@@ -734,9 +734,9 @@ public sealed class OpenWithoutAPathTests : IDisposable
     {
         var store = new DocumentStore();
 
-        var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
+        var message = Answer.Error(AmlTools.OpenAmlDocument(store));
 
-        Assert.Contains("call open_aml_document with the path", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("call open_aml_document with the path", message, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -758,11 +758,11 @@ public sealed class FollowedDocumentOutsideTheRootTests : IDisposable
         var pointer = _inside.Write("open-document.txt", elsewhere);
         var store = new DocumentStore(ServerOptions.Parse(new[] { "--root", _inside.Dir, "--follow", pointer }));
 
-        var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
+        var message = Answer.Error(AmlTools.OpenAmlDocument(store));
 
-        Assert.Contains("the editor has", ex.Message);
-        Assert.Contains(elsewhere, ex.Message);
-        Assert.Contains("outside the directories this server may read", ex.Message);
+        Assert.Contains("the editor has", message);
+        Assert.Contains(elsewhere, message);
+        Assert.Contains("outside the directories this server may read", message);
     }
 }
 
@@ -892,10 +892,10 @@ public sealed class ShowInEditorTests : IDisposable
     [Fact]
     public void Without_an_answer_the_call_does_not_claim_that_anything_was_shown()
     {
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(), "Station1"));
+        var message = Answer.Error(AmlTools.ShowInEditor(Store(), "Station1"));
 
-        Assert.Contains("No AutomationML Editor answered", ex.Message);
-        Assert.Contains("Nothing was shown", ex.Message);
+        Assert.Contains("No AutomationML Editor answered", message);
+        Assert.Contains("Nothing was shown", message);
     }
 
     [Fact]
@@ -903,20 +903,20 @@ public sealed class ShowInEditorTests : IDisposable
     {
         var editor = PlayEditor("mismatch", "the editor has another document open: other.aml");
 
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(), "Station1"));
+        var message = Answer.Error(AmlTools.ShowInEditor(Store(), "Station1"));
         editor.Wait();
 
-        Assert.Contains("did not show it", ex.Message);
-        Assert.Contains("other.aml", ex.Message);
+        Assert.Contains("did not show it", message);
+        Assert.Contains("other.aml", message);
     }
 
     [Fact]
     public void Without_an_editor_the_refusal_tells_the_user_what_to_do()
     {
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(withEditor: false), "Station1"));
+        var message = Answer.Error(AmlTools.ShowInEditor(Store(withEditor: false), "Station1"));
 
-        Assert.Contains("AmlMcp panel", ex.Message);
-        Assert.Contains("Register", ex.Message);
+        Assert.Contains("AmlMcp panel", message);
+        Assert.Contains("Register", message);
     }
 
     [Fact]
@@ -924,7 +924,7 @@ public sealed class ShowInEditorTests : IDisposable
     {
         var store = Store();
 
-        Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "NoSuchElement"));
+        Answer.Error(AmlTools.ShowInEditor(store, "NoSuchElement"));
 
         Assert.False(File.Exists(SelectFile));
     }
@@ -936,7 +936,7 @@ public sealed class ShowInEditorTests : IDisposable
         File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
             System.Text.Json.JsonSerializer.Serialize(new ShowAck("an-old-nonce", "selected")));
 
-        Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "Station1"));
+        Answer.Error(AmlTools.ShowInEditor(store, "Station1"));
     }
 }
 
