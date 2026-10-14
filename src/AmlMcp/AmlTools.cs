@@ -423,9 +423,13 @@ public static class AmlTools
 
         var crossLinks = m.Links.Count(l => l.CrossHierarchy);
         var unresolvedLinks = m.Links.Count(l => !l.Resolved);
+        // Class libraries carry links of their own, inside the templates. Counting those
+        // with the links of the plant would overstate how connected the plant is.
+        var inTemplates = m.Links.Count(l => IsInClassLibrary(l.Link));
         var resolvedRefs = m.Refs.Where(r => r.Resolved).ToList();
         var crossRefs = resolvedRefs.Count(r => HierarchyNameOf(r.Source) != HierarchyNameOf(r.Target));
-        sb.AppendLine($"\nInternalLinks: {m.Links.Count} total, {crossLinks} across hierarchies, {unresolvedLinks} unresolved");
+        sb.AppendLine($"\nInternalLinks: {m.Links.Count} total, {crossLinks} across hierarchies, {unresolvedLinks} unresolved"
+                      + (inTemplates > 0 ? $"  ({inTemplates} of them inside class library templates)" : ""));
         sb.AppendLine($"References (refObj family and similar): {resolvedRefs.Count} resolved ({crossRefs} across hierarchies), {m.Refs.Count - resolvedRefs.Count} dangling");
 
         var crossPairs = m.Links.Where(l => l.CrossHierarchy).Select(l => (l.HierarchyA!, l.HierarchyB!, "link"))
@@ -478,11 +482,18 @@ public static class AmlTools
                    || roles.Any(r => r.Contains(q, StringComparison.OrdinalIgnoreCase));
         }).ToList();
 
-        if (hits.Count == 0) return "No matching elements.";
-        var sb = new StringBuilder($"{hits.Count} match(es){(hits.Count > limit ? $", showing {limit}" : "")}:\n");
-        foreach (var e in hits.Take(limit))
+        // A class template is not an element of the plant. Searching the libraries along
+        // with the hierarchies buried 694 real elements under 9086 templates.
+        var inHierarchies = hits.Where(e => !IsInClassLibrary(e)).ToList();
+        var templates = hits.Count - inHierarchies.Count;
+        var alsoInLibraries = templates == 0 ? "" :
+            $"{templates} further match(es) are templates inside class libraries; ask list_classes or get_class for those.\n";
+
+        if (inHierarchies.Count == 0) return "No matching elements.\n" + alsoInLibraries;
+        var sb = new StringBuilder($"{inHierarchies.Count} match(es){(inHierarchies.Count > limit ? $", showing {limit}" : "")}:\n");
+        foreach (var e in inHierarchies.Take(limit))
             sb.AppendLine($"  {PathOf(e)}  [{ShortClass(m.ClassOf(e))}]{(m.MirrorReferenceOf(e) is not null ? "  (mirror)" : "")}  id={IdOf(e)}");
-        return sb.ToString();
+        return sb + alsoInLibraries;
     }
 
     // ------------------------------------------------------------------ element
@@ -497,8 +508,10 @@ public static class AmlTools
 
         sb.AppendLine($"{NameOf(e)}  ({e.Name.LocalName})");
         sb.AppendLine($"  id: {IdOf(e)}");
-        sb.AppendLine($"  path: {PathOf(e)}");
-        sb.AppendLine($"  hierarchy: {HierarchyNameOf(e)}");
+        sb.AppendLine($"  path: {DisplayPathOf(e)}");
+        sb.AppendLine(IsInClassLibrary(e)
+            ? "  this is a template inside a class library, not an element of a hierarchy"
+            : $"  hierarchy: {HierarchyNameOf(e)}");
         if (m.ElementsByDuplicateId.GetValueOrDefault(NormId(IdOf(e))) is { Count: > 1 } sameId)
             sb.AppendLine($"  note: {sameId.Count} elements carry this ID. This card is about {DisplayPathOf(sameId[0])}; " +
                           $"the others are {string.Join(", ", sameId.Skip(1).Select(DisplayPathOf))} and cannot be addressed by ID");
@@ -748,7 +761,7 @@ public static class AmlTools
             .SelectMany(l => new[] { l.InterfaceA!, l.InterfaceB! })
             .GroupBy(i => i).Where(g => g.Count() > 1).ToList();
         foreach (var g in shared)
-            sb.AppendLine($"  note: interface {PathOf(g.Key)} is used by {g.Count()} links");
+            sb.AppendLine($"  note: interface {DisplayPathOf(g.Key)} is used by {g.Count()} links");
 
         sb.AppendLine(problems == 0 ? "  no problems found" : $"  {problems} problem(s)");
         sb.AppendLine($"  checked: {m.Classes.Count} library classes, {m.Links.Count} links, {m.Refs.Count} references, {m.ById.Count} IDs");

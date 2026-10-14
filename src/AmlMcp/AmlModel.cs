@@ -948,14 +948,22 @@ public sealed class AmlModel
     public static string? HierarchyNameOf(XElement? e) =>
         e is null ? null : NameOf(e.AncestorsAndSelf(C + "InstanceHierarchy").FirstOrDefault());
 
-    /// <summary>PathOf for instance elements, the library path for classes.</summary>
+    /// <summary>True for anything that lives in a class library rather than a hierarchy.</summary>
+    public static bool IsInClassLibrary(XElement e) =>
+        e.AncestorsAndSelf().Any(a => LibraryKinds.Contains(a.Name.LocalName));
+
+    /// <summary>
+    /// Where an element is, said so that a reader can find it: the path through the
+    /// hierarchy, or, for a class template, the library and class it sits in. PathOf
+    /// alone would name a template's interface "Connector" and leave it at that.
+    /// </summary>
     public static string DisplayPathOf(XElement e)
     {
-        var path = PathOf(e);
-        if (path.Length > 0) return path;
+        if (!IsInClassLibrary(e)) return PathOf(e);
         return string.Join("/", e.AncestorsAndSelf()
-            .Where(a => LibraryKinds.Contains(a.Name.LocalName) || ClassKinds.Contains(a.Name.LocalName))
-            .Reverse().Select(a => NameOf(a)));
+            .Where(a => LibraryKinds.Contains(a.Name.LocalName) || ClassKinds.Contains(a.Name.LocalName)
+                        || a.Name.LocalName is "InternalElement" or "ExternalInterface")
+            .Reverse().Select(NameOf));
     }
 
     public static string PathOf(XElement e) =>

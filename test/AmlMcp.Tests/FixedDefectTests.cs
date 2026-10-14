@@ -1276,3 +1276,74 @@ public sealed class AmbiguityTests : IDisposable
                  && p.GetProperty("message").GetString()!.Contains("Plant/Second"));
     }
 }
+
+/// <summary>
+/// A class library holds templates: elements, interfaces and links of its own. They used
+/// to be counted and searched as if they were part of the plant.
+/// </summary>
+public sealed class ClassTemplateTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+    private readonly string _overview;
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="templates.aml" xmlns="http://www.dke.de/CAEX">
+          <SystemUnitClassLib Name="Lib">
+            <SystemUnitClass Name="Station">
+              <InternalElement Name="Drive" ID="{aaaa0000-0000-0000-0000-000000000001}">
+                <ExternalInterface Name="Port" ID="{aaaa0000-0000-0000-0000-0000000000a1}" />
+              </InternalElement>
+              <InternalElement Name="Sensor" ID="{aaaa0000-0000-0000-0000-000000000002}">
+                <ExternalInterface Name="Port" ID="{aaaa0000-0000-0000-0000-0000000000a2}" />
+              </InternalElement>
+              <InternalLink Name="Wiring"
+                            RefPartnerSideA="{aaaa0000-0000-0000-0000-0000000000a1}"
+                            RefPartnerSideB="{aaaa0000-0000-0000-0000-0000000000a2}" />
+            </SystemUnitClass>
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{aaaa0000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Drive" ID="{aaaa0000-0000-0000-0000-000000000011}" RefBaseSystemUnitPath="Lib/Station" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public ClassTemplateTests() =>
+        _overview = AmlTools.OpenDocumentText(_store, _ws.Write("templates.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void The_overview_says_how_many_links_belong_to_the_templates()
+    {
+        Assert.Contains("InternalLinks: 1 total", _overview);
+        Assert.Contains("(1 of them inside class library templates)", _overview);
+        Assert.Contains("Plant: 1 elements", _overview);
+    }
+
+    [Fact]
+    public void The_search_answers_about_the_plant_and_counts_the_templates_apart()
+    {
+        var text = AmlTools.FindElementsText(_store, "Drive");
+        var data = Answer.Data(AmlTools.FindElements(_store, "Drive"));
+
+        Assert.Contains("1 match(es)", text);
+        Assert.Contains("Plant/Drive", text);
+        Assert.DoesNotContain("Lib/Station/Drive  [", text);
+        Assert.Contains("1 further match(es) are templates inside class libraries", text);
+
+        Assert.Equal(1, data.GetProperty("total").GetInt32());
+        Assert.Equal(1, data.GetProperty("inClassLibraries").GetInt32());
+    }
+
+    [Fact]
+    public void A_template_element_says_where_it_sits_instead_of_showing_an_empty_hierarchy()
+    {
+        var card = AmlTools.ElementCard(_store, "{aaaa0000-0000-0000-0000-000000000001}");
+
+        Assert.Contains("path: Lib/Station/Drive", card);
+        Assert.Contains("this is a template inside a class library", card);
+        Assert.DoesNotContain("hierarchy: \n", card);
+    }
+}

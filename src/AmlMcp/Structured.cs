@@ -161,8 +161,10 @@ internal static class Structured
                    || roles.Any(r => r.Contains(q, StringComparison.OrdinalIgnoreCase));
         }).ToList();
 
-        return new ElementListInfo(hits.Count, Math.Min(hits.Count, limit),
-            hits.Take(limit).Select(e => Ref(m, e)).ToList());
+        // Class templates are counted, not listed: they are not elements of the plant.
+        var inHierarchies = hits.Where(e => !IsInClassLibrary(e)).ToList();
+        return new ElementListInfo(inHierarchies.Count, Math.Min(inHierarchies.Count, limit),
+            inHierarchies.Take(limit).Select(e => Ref(m, e)).ToList(), hits.Count - inHierarchies.Count);
     }
 
     public static bool Matches(AmlModel m, string classReference, string text) =>
@@ -228,7 +230,7 @@ internal static class Structured
             notes.Add(new ProblemInfo("libraryOutsideContainer", $"{r.Alias} -> {r.Path}"));
         foreach (var g in m.Links.Where(l => l.Resolved).SelectMany(l => new[] { l.InterfaceA!, l.InterfaceB! })
                      .GroupBy(i => i).Where(g => g.Count() > 1))
-            notes.Add(new ProblemInfo("sharedInterface", $"{PathOf(g.Key)} is used by {g.Count()} links"));
+            notes.Add(new ProblemInfo("sharedInterface", $"{DisplayPathOf(g.Key)} is used by {g.Count()} links"));
 
         return new CheckInfo(Path.GetFileName(m.FilePath), problems.Count == 0, problems, notes,
             m.Classes.Count, m.Links.Count, m.Refs.Count, m.ById.Count);

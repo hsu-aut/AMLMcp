@@ -65,7 +65,7 @@ public sealed record ElementInfo(
     IReadOnlyList<string> DanglingReferences,
     int HiddenPresentationAttributes);
 
-public sealed record ElementListInfo(int Total, int Shown, IReadOnlyList<ElementRef> Elements);
+public sealed record ElementListInfo(int Total, int Shown, IReadOnlyList<ElementRef> Elements, int InClassLibraries);
 
 public sealed record PathStepInfo(string Kind, string Detail, ElementRef To);
 
