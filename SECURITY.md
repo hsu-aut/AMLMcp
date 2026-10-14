@@ -23,8 +23,8 @@ the readable directories to stderr when it starts.
 
 **Document content reaches the language model as it is.** Descriptions, names and attribute values
 are passed through verbatim. A document from an untrusted source is untrusted input to whatever
-model the client uses; treat it that way. XML is parsed with DTD processing disabled, so external
-entities are not resolved.
+model the client uses; treat it that way. XML is parsed with DTD processing disabled: a document that carries a DOCTYPE is refused, so an
+external entity is never resolved.
 
 ## Supported versions
 

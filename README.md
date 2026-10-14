@@ -36,7 +36,7 @@ dotnet test AmlMcp.sln
 The executable is `src/AmlMcp/bin/Release/net10.0/aml-mcp` (`.exe` on Windows).
 
 Ready made instead of built: every [release](https://github.com/hsu-aut/AMLMcp/releases) carries a self
-contained binary for Windows, Linux and macOS, and the editor panel. As a NuGet tool
+contained binary for Windows (x64), Linux (x64) and macOS (x64 and arm64), and the editor panel. As a NuGet tool
 (`dotnet tool install --global AutomationML.McpServer`) it follows once the package is published.
 
 ## Connect a client
@@ -51,6 +51,14 @@ sees it. Go through `cmd` there:
 ```powershell
 cmd /c 'claude mcp add aml -s user -- "C:\path\to\aml-mcp.exe" --root C:\models'
 ```
+
+Then ask a question. The first call opens a document, the rest work on it:
+
+> Open examples/plant.aml. Which station carries out the step DrillHole, and how is it tied to the
+> behaviour view?
+
+Paths are resolved against the working directory of the server process, which the client decides, so
+give absolute ones unless you set `--root` and know where the client starts the server.
 
 Other clients take the same command in their configuration file:
 
@@ -87,7 +95,7 @@ nuget.org the PlugIn Manager finds it by itself. The editor is not needed for an
 |---|---|
 | `open_aml_document` | What is in this file: container parts, external libraries and whether they resolve, class libraries, hierarchies with element counts, and how the hierarchies are connected. Without a path it reads the document the editor has open |
 | `get_tree` | The containment tree of a hierarchy or element |
-| `find_elements` | Elements by text, class or role; class and role filters follow inheritance. Searches the instance hierarchies and counts what it found in the class libraries apart |
+| `find_elements` | Elements by text, class or role; class and role filters follow inheritance. It searches the instance hierarchies; matches inside the templates of system unit classes are counted, not listed. For the classes themselves use `list_classes` |
 | `get_element` | One element: class, roles, own and inherited attributes, interfaces, children, and every link, reference and mirror relation in both directions. An interface ID answers about its owner and says so |
 | `get_neighbors` | What an element is connected to, up to four hops, optionally only across hierarchies |
 | `find_path` | The shortest chain of connections between two elements |
@@ -104,14 +112,16 @@ Each tool returns text for the model and `structuredContent` for programs; the r
 
 | Option | Effect |
 |---|---|
-| `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS` |
+| `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS`, several directories separated by `;` on Windows and `:` elsewhere |
 | `--follow <file>` | Answer about the document whose path this file holds, as long as the client names none. The editor panel keeps it up to date, so switching documents needs no restart. Environment: `AML_MCP_FOLLOW` |
-| `--select <file>` | Where `show_in_editor` writes its request (document, element, nonce). The editor panel watches the file, selects the element and answers in `<file>.ack`. Environment: `AML_MCP_SELECT` |
-| `--strict-conventions` | Interpret only what CAEX and the shared libraries define, without the attribute name conventions of older libraries. Environment: `AML_MCP_STRICT=1` |
+| `--select <file>` | Where `show_in_editor` writes its request, as JSON with `nonce`, `document`, `id` and `path`. The editor panel watches the file, selects the element and answers in `<file>.ack`. Environment: `AML_MCP_SELECT` |
+| `--strict-conventions` | Interpret only what CAEX and the shared libraries define. Without it an attribute named `refSomething` whose value is an ID counts as a reference, and `ViewInformation`, `PortCoordinate`, `LabelOffset` and `Waypoint...` count as layout. Environment: `AML_MCP_STRICT=1` |
 | `--help`, `--version` | Print usage or version |
 
 Unknown arguments are refused, so a typo such as `--roots` cannot silently start a server without a
-restriction. Without `--root` the server reads whatever the user who started it can read.
+restriction. A directory that does not exist is accepted, though, and then nothing is readable: the
+server prints the line `aml-mcp: readable directories: ...` to stderr when it starts, which is where
+a mistyped path shows. Without `--root` the server reads whatever the user who started it can read.
 
 ## What it understands
 
@@ -134,9 +144,9 @@ Graph traversal happens in the server, not in the model, which keeps small local
 ## Notes
 
 The server never writes to a document. The only file it writes is the one given with `--select`, and
-only to tell an editor which element to show. XML is parsed with DTD processing disabled. Descriptions
-and attribute values reach the language model as they are, so treat documents from untrusted sources
-accordingly.
+only to tell an editor which element to show. XML is parsed with DTD processing disabled, so a document carrying a DOCTYPE is refused and an
+external entity is never resolved. Descriptions and attribute values reach the language model as they
+are, so treat documents from untrusted sources accordingly.
 
 ## Related
 

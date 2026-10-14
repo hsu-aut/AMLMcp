@@ -31,5 +31,5 @@ lib/DemoLib.aml
 geometry/station.dae
 ```
 
-For a full model of a real machine, with a plant structure, a VDI/VDE 3682 process description and a
-Petri net coupled through object references, point the server at the MPS500 material with `--root`.
+These four are small on purpose. On a real model the same questions carry further: point the server
+at a folder of your own with `--root` and start with `open_aml_document`.

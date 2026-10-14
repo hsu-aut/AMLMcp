@@ -17,7 +17,7 @@ namespace AmlMcp;
 public static class AmlTools
 {
     private const string DocumentParameter =
-        "Optional path of an .aml file. Omit to use the most recently opened document.";
+        "Optional path of an .aml or .amlx file. Omit to use the document named or opened last.";
 
     private static CallToolResult Answer(string text, object? data) => new()
     {
@@ -49,11 +49,12 @@ public static class AmlTools
                  "and whether they resolve, class libraries, instance hierarchies with element counts by class, and " +
                  "how the hierarchies are connected (InternalLinks, references and mirror objects across hierarchies). " +
                  "Call this first. The document stays open for the other tools and is reloaded automatically when the file changes. " +
-                 "Omit the path to read the document the user currently has open in their AutomationML editor.")]
+                 "Omit the path to read the document the user currently has open in their AutomationML editor. " +
+                 "Run check_references for the details behind any warning in the overview.")]
     public static CallToolResult OpenAmlDocument(
 
         DocumentStore store,
-        [Description("Absolute or relative path to the .aml file. Omit it to use the document open in the editor.")] string? path = null)
+        [Description("Path to the .aml or .amlx file. Prefer an absolute one: a relative path is resolved against the working directory of the server process, which the client decides. Omit it to use the document open in the editor.")] string? path = null)
     {
         return Guard(() =>
         {
@@ -65,8 +66,7 @@ public static class AmlTools
 
     [McpServerTool(Name = "get_tree", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Shows the containment tree below an instance hierarchy or element, with class, ID, mirror objects and a " +
-                 "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy. " +
-                 "AutomationML, CAEX, InstanceHierarchy, InternalElement, structure, children.")]
+                 "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy.")]
     public static CallToolResult GetTree(
         DocumentStore store,
         [Description("Hierarchy name, element ID, path (Hierarchy/Parent/Child) or unique element name. Omit for all hierarchies.")] string? element = null,
@@ -147,12 +147,13 @@ public static class AmlTools
     [Description("Searches internal elements by text in name, description, ID, class or role, optionally restricted " +
                  "to a class, a role or one instance hierarchy. Class and role filters follow inheritance: filtering " +
                  "for a base class also finds instances of its subclasses. Returns path, class and ID per hit. " +
-                 "AutomationML, CAEX, search, lookup, find by name, by ID, by class, by role.")]
+                 "It searches the instance hierarchies; matches inside the templates of system unit classes are " +
+                 "counted, not listed. To look up classes themselves use list_classes.")]
     public static CallToolResult FindElements(
 
         DocumentStore store,
         [Description("Text to search for (case-insensitive). May be empty when filtering by class or role only.")] string? query = null,
-        [Description("Only elements whose system unit class or one of its base classes contains this text, e.g. FPD_ProcessOperator or PT_Transition.")] string? classContains = null,
+        [Description("Only elements whose system unit class or one of its base classes contains this text, e.g. Drill or the full path of a class.")] string? classContains = null,
         [Description("Only elements with a role requirement whose role class or one of its base classes contains this text.")] string? roleContains = null,
         [Description("Only elements in this instance hierarchy.")] string? hierarchy = null,
         [Description("Maximum number of results.")] int limit = 30,
@@ -170,8 +171,8 @@ public static class AmlTools
     [Description("Returns a compact card for one element: path, hierarchy, class (resolved against the libraries), roles, " +
                  "description, own attributes, attributes inherited from the class chain, interfaces, children, and all " +
                  "connections: InternalLinks, references and mirror relations in both directions, each with the partner's " +
-                 "path, hierarchy and ID. Diagram layout attributes are hidden unless requested. " +
-                 "AutomationML, CAEX, element details, attributes, ExternalInterface, InternalLink, refObj, mirror, ID lookup.")]
+                 "path, hierarchy and ID. Diagram layout attributes are hidden unless requested. An interface ID answers about " +
+                 "the element that owns it and says so. For connections more than one hop away use get_neighbors.")]
     public static CallToolResult GetElement(
 
         DocumentStore store,
@@ -189,8 +190,8 @@ public static class AmlTools
     [McpServerTool(Name = "get_neighbors", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Follows connections from an element up to a given depth: InternalLinks, references (refObj family " +
                  "and similar) and mirror relations in both directions, and optionally parent/child containment. Use " +
-                 "crossHierarchyOnly to see how e.g. a process view, a behaviour view and a plant structure are tied together. " +
-                 "AutomationML, CAEX, trace connections, linked elements, arcs, places, transitions, neighbours.")]
+                 "crossHierarchyOnly to see how two views of the same plant are tied together. Use it after get_element when " +
+                 "you need to follow connections beyond the first hop; get_element already lists the first.")]
     public static CallToolResult GetNeighbors(
         DocumentStore store,
         [Description("Element ID, path or unique name.")] string element,
@@ -262,8 +263,9 @@ public static class AmlTools
 
     [McpServerTool(Name = "find_path", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Finds the shortest chain of connections between two elements (links, references, mirror relations and, " +
-                 "unless disabled, containment). Answers questions like 'how is this Petri net transition related to that process operator'. " +
-                 "AutomationML, CAEX, trace, route, shortest path, how are two elements connected.")]
+                 "unless disabled, containment). Answers how two elements are related. A containment step says only that one " +
+                 "element sits inside another, which is not a connection between them: disable containment to see " +
+                 "whether they are connected at all.")]
     public static CallToolResult FindPath(
 
         DocumentStore store,
@@ -285,12 +287,11 @@ public static class AmlTools
     [Description("Looks up a class from the role, system unit, interface or attribute type libraries (embedded or " +
                  "referenced externally): description, inheritance chain, own and inherited attributes with defaults, " +
                  "interfaces, supported roles, subclasses, and how many elements in the document use it. Accepts a full " +
-                 "path or a class name; a name shared by a role and a system unit class returns both. " +
-                 "AutomationML, CAEX, SystemUnitClass, RoleClass, InterfaceClass, AttributeType, library, inheritance.")]
+                 "path or a class name; a name shared by a role and a system unit class returns both.")]
     public static CallToolResult GetClass(
 
         DocumentStore store,
-        [Description("Class path (e.g. VDI_FPD_DomainLibrary@VDI_FPD_SystemUnitClassLib/FPD_ProcessOperator) or just the class name.")] string classPath,
+        [Description("Class path (Library/Class, or Alias@Library/Class for a class from an external library) or just the class name.")] string classPath,
         [Description(DocumentParameter)] string? document = null)
     {
         return Guard(() =>
@@ -305,11 +306,11 @@ public static class AmlTools
 
     [McpServerTool(Name = "list_classes", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Lists classes from all libraries available to the document, optionally filtered by library, kind " +
-                 "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text. AutomationML, CAEX, libraries, classes, browse.")]
+                 "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text.")]
     public static CallToolResult ListClasses(
         DocumentStore store,
         [Description("Only classes whose library name contains this text.")] string? library = null,
-        [Description("RoleClass, SystemUnitClass, InterfaceClass or AttributeType.")] string? kind = null,
+        [Description("RoleClass, SystemUnitClass, InterfaceClass or AttributeType. Short forms such as role work too.")] string? kind = null,
         [Description("Only classes whose path or description contains this text.")] string? query = null,
         [Description(DocumentParameter)] string? document = null)
     {

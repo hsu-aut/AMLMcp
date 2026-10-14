@@ -79,7 +79,10 @@ static string Instructions(ServerOptions options)
     text.AppendLine("Tools: open_aml_document (overview), get_tree (structure), find_elements (search), " +
                     "get_element (one element with its attributes, interfaces and every link), get_neighbors " +
                     "(follow links and references), find_path (how two elements are connected), get_class, " +
-                    "list_classes, check_references. Ask for them by name if your client loads tools on demand.");
+                    "list_classes, check_references" +
+                    (options.SelectFile is not null ? ", show_in_editor" : "") +
+                    ". Ask for them by name if your client loads tools on demand.");
+    text.AppendLine("Several documents can be open at once: every tool takes a document path, and leaving it out means the one named or opened last.");
     if (options.SelectFile is not null)
         text.AppendLine("You can point the user's editor at an element with show_in_editor. Use it when you name an element they would otherwise have to look up by hand.");
     if (options.Roots.Count > 0)
