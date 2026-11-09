@@ -6,11 +6,15 @@ using Microsoft.Extensions.Logging;
 if (args.Contains("--help") || args.Contains("-h"))
 {
     Console.WriteLine("""
-        aml-mcp: a read-only Model Context Protocol server for AutomationML (CAEX 3.0, CAEX 2.15, AMLX).
+        aml-mcp: a Model Context Protocol server for AutomationML (CAEX 3.0, CAEX 2.15, AMLX).
+        It reads; it writes only where --write allows it.
 
         Usage: aml-mcp [options]
           --root <dir>            Restrict reading to this directory (repeatable).
                                   Environment: AML_MCP_ROOTS, separated by the platform path separator.
+          --write <dir>           Allow writing below this directory (repeatable). Without it the
+                                  server writes nothing. A readable directory is not a writable one.
+                                  Environment: AML_MCP_WRITE, separated by the platform path separator.
           --follow <file>         Answer about the document whose path this file contains, as long as
                                   the client names none. An editor plugin keeps the file up to date.
                                   Environment: AML_MCP_FOLLOW
@@ -46,6 +50,7 @@ catch (ArgumentException ex)
 }
 
 Console.Error.WriteLine($"aml-mcp: readable directories: {options.RootsDescription}");
+Console.Error.WriteLine($"aml-mcp: writable directories: {options.WriteRootsDescription}");
 
 var builder = Host.CreateApplicationBuilder(args);
 
