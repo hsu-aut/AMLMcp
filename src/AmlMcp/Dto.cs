@@ -120,6 +120,13 @@ public sealed record CheckInfo(
     int References,
     int Ids);
 
+/// <summary>What a write produced, for a client that reads the structured half.</summary>
+public sealed record WriteResultInfo(
+    string? WrittenTo,
+    bool Preview,
+    DocumentInfo Document,
+    CheckInfo Check);
+
 internal static class Json
 {
     public static readonly JsonSerializerOptions Options = new()

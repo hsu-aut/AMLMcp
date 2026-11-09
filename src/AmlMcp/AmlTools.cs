@@ -425,6 +425,47 @@ public static class AmlTools
         });
     }
 
+    [McpServerTool(Name = "write_aml_document", ReadOnly = false, Idempotent = true, Destructive = true, OpenWorld = false)]
+    [Description("Creates a new AutomationML document from a description. You do not write CAEX: you say which class " +
+                 "libraries, instance hierarchies, elements, attributes, interfaces and links the document should have, " +
+                 "and the server renders the XML, generates every ID from the element's path, writes link partners in the " +
+                 "form that resolves, and adds the classes you use when you name no library. It refuses a description " +
+                 "that would not resolve and writes nothing in that case. Call it with preview first: that renders and " +
+                 "checks without touching the disk and gives you the same overview and reference check you would get " +
+                 "after the write, so the user can judge it. Writing needs a directory the server was started with " +
+                 "(--write); an existing file is kept unless you ask for it to be replaced.")]
+    public static CallToolResult WriteAmlDocument(
+
+        DocumentStore store,
+        [Description("Path of the .aml file to write. Prefer an absolute one; it has to lie inside a directory the server may write.")] string path,
+        [Description("The document to write: file name, schema version, description, external libraries, class libraries and instance hierarchies.")] DocumentSpec document,
+        [Description("Render and check without writing anything, and report what would be written.")] bool preview = false,
+        [Description("Replace the file if it already exists.")] bool overwrite = false)
+    {
+        return Guard(() =>
+        {
+            // One outcome feeds both halves, as everywhere else in this server.
+            var outcome = DocumentWriter.Write(store, path, document, preview, overwrite);
+            return Answer(WriteText(outcome), new WriteResultInfo(
+                outcome.WrittenTo, preview, Structured.Document(outcome.Model), outcome.Check));
+        });
+    }
+
+    /// <summary>
+    /// What a write says: where it went, then the overview and the check of the document, in
+    /// the words the read side uses for a document that was already there.
+    /// </summary>
+    public static string WriteText(WriteOutcome outcome)
+    {
+        var sb = new StringBuilder(outcome.WrittenTo is null
+            ? "Preview: nothing was written. This is the document that would be written."
+            : $"Written: {outcome.WrittenTo}");
+        sb.AppendLine().AppendLine();
+        sb.AppendLine(OpenDocumentText(outcome.Model));
+        sb.Append(CheckText(outcome.Model));
+        return sb.ToString();
+    }
+
 
     // ------------------------------------------------------------------ open
 

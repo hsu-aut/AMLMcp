@@ -781,17 +781,19 @@ public sealed class ToolAnnotationTests
             .Where(a => a is not null)
             .ToList();
 
-        Assert.Equal(10, tools.Count);
+        Assert.Equal(11, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.True(tool!.Idempotent);
-            Assert.False(tool.Destructive);
             Assert.False(tool.OpenWorld);
         });
 
         // Nine read. show_in_editor writes a file for the editor, and says so.
+        // write_aml_document writes a document, and is the only one that can replace a file.
         Assert.Equal(9, tools.Count(t => t!.ReadOnly));
-        Assert.Equal("show_in_editor", Assert.Single(tools, t => !t!.ReadOnly)!.Name);
+        Assert.Equal(new[] { "show_in_editor", "write_aml_document" },
+            tools.Where(t => !t!.ReadOnly).Select(t => t!.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal("write_aml_document", Assert.Single(tools, t => t!.Destructive)!.Name);
     }
 }
 
