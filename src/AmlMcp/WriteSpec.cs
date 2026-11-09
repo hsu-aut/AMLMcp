@@ -99,11 +99,14 @@ public static class WriteSpec
             faults.Add($"Two instance hierarchies are called '{name}'.");
 
         // One walk: it collects every element by its path and reports what it sees on the way.
+        // The mirrors are collected as a list, not read back from the index: two elements of
+        // the same name share a path, and the index would keep only one of them.
         var elements = new Dictionary<string, ElementSpec>(StringComparer.OrdinalIgnoreCase);
+        var mirrors = new List<(string Path, string Master)>();
         foreach (var hierarchy in hierarchies)
         {
             if (string.IsNullOrWhiteSpace(hierarchy.Name)) faults.Add("An instance hierarchy is without a name.");
-            Walk(hierarchy.Elements, hierarchy.Name ?? "", elements, faults);
+            Walk(hierarchy.Elements, hierarchy.Name ?? "", elements, mirrors, faults);
         }
 
         foreach (var hierarchy in hierarchies)
@@ -113,15 +116,16 @@ public static class WriteSpec
             CheckEndpoint(link, link.To, elements, faults);
         }
 
-        foreach (var (path, element) in elements)
-            if (!string.IsNullOrWhiteSpace(element.MirrorOf) && !elements.ContainsKey(element.MirrorOf!))
-                faults.Add($"'{path}' mirrors '{element.MirrorOf}', which is not in this description.");
+        foreach (var (path, master) in mirrors)
+            if (!elements.ContainsKey(master))
+                faults.Add($"'{path}' mirrors '{master}', which is not in this description.");
 
         return faults;
     }
 
     private static void Walk(IReadOnlyList<ElementSpec>? children, string parentPath,
-                             Dictionary<string, ElementSpec> elements, List<string> faults)
+                             Dictionary<string, ElementSpec> elements,
+                             List<(string Path, string Master)> mirrors, List<string> faults)
     {
         if (children is null) return;
         foreach (var name in Duplicates(children.Select(c => c.Name)))
@@ -136,7 +140,8 @@ public static class WriteSpec
             }
             var path = parentPath.Length == 0 ? child.Name : $"{parentPath}/{child.Name}";
             elements[path] = child;
-            Walk(child.Children, path, elements, faults);
+            if (!string.IsNullOrWhiteSpace(child.MirrorOf)) mirrors.Add((path, child.MirrorOf!));
+            Walk(child.Children, path, elements, mirrors, faults);
         }
     }
 
