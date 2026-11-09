@@ -18,7 +18,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>aml-mcp</ToolCommandName>
     <Title>AutomationML MCP Server</Title>
-    <Description>An MCP server for AutomationML (IEC 62714). Lets a language model client read and navigate CAEX 3.0, CAEX 2.15 and AMLX documents: hierarchies, class libraries, links, mirror objects and object references. Reads only.</Description>
+    <Description>An MCP server for AutomationML (IEC 62714). Lets a language model client read and navigate CAEX 3.0, CAEX 2.15 and AMLX documents: hierarchies, class libraries, links, mirror objects and object references. Writes new CAEX 3.0 documents, validated against the schema, into the directories it is given with --write; without one it writes nothing.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <!-- A short readme of its own: nuget.org does not resolve the relative links of the repository readme. -->
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
