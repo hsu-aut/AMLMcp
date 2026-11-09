@@ -78,9 +78,12 @@ public static class WriteSpec
         var libraries = spec.Libraries ?? Array.Empty<LibrarySpec>();
         var hierarchies = spec.Hierarchies ?? Array.Empty<HierarchySpec>();
 
-        if (libraries.Count == 0 && hierarchies.Count == 0)
+        // A hierarchy without elements is a heading, not content: a description of nothing
+        // but headings is a stub, and writing it would answer a mistake with a file.
+        if (libraries.Count == 0 && hierarchies.All(h => (h.Elements?.Count ?? 0) == 0))
         {
-            faults.Add("There is nothing to write: name at least one class library or one instance hierarchy.");
+            faults.Add("There is nothing to write: name at least one class library, or an instance hierarchy " +
+                       "with at least one element.");
             return faults;
         }
 
@@ -129,16 +132,24 @@ public static class WriteSpec
         foreach (var hierarchy in hierarchies)
         {
             if (string.IsNullOrWhiteSpace(hierarchy.Name)) faults.Add("An instance hierarchy is without a name.");
+            NoSlash(hierarchy.Name, "The instance hierarchy", faults);
             Walk(hierarchy.Elements, hierarchy.Name ?? "", elements, mirrors, references, faults);
         }
 
         foreach (var hierarchy in hierarchies)
-        foreach (var link in hierarchy.Links ?? Array.Empty<LinkSpec>())
         {
-            if (string.IsNullOrWhiteSpace(link.Name))
-                faults.Add($"A link in '{hierarchy.Name}' is without a name.");
-            CheckEndpoint(link, link.From, elements, faults);
-            CheckEndpoint(link, link.To, elements, faults);
+            // The ID of a link is derived from its hierarchy and its name, so two of one
+            // name would be one ID written twice.
+            foreach (var name in Duplicates((hierarchy.Links ?? Array.Empty<LinkSpec>()).Select(l => l.Name)))
+                faults.Add($"'{hierarchy.Name}' has two links called '{name}'. A link needs a name of its own.");
+
+            foreach (var link in hierarchy.Links ?? Array.Empty<LinkSpec>())
+            {
+                if (string.IsNullOrWhiteSpace(link.Name))
+                    faults.Add($"A link in '{hierarchy.Name}' is without a name.");
+                CheckEndpoint(link, link.From, elements, faults);
+                CheckEndpoint(link, link.To, elements, faults);
+            }
         }
 
         foreach (var (path, master) in mirrors)
@@ -170,14 +181,18 @@ public static class WriteSpec
                 faults.Add($"An element below '{parentPath}' is without a name.");
                 continue;
             }
+            NoSlash(child.Name, $"The element of '{parentPath}' called", faults);
             var path = parentPath.Length == 0 ? child.Name : $"{parentPath}/{child.Name}";
             elements[path] = child;
             if (!string.IsNullOrWhiteSpace(child.MirrorOf)) mirrors.Add((path, child.MirrorOf!));
             Names(child.Attributes, path, faults);
             References(child.Attributes, path, references);
             foreach (var @interface in child.Interfaces ?? Array.Empty<InterfaceSpec>())
+            {
                 if (string.IsNullOrWhiteSpace(@interface.Name))
                     faults.Add($"An interface of '{path}' is without a name.");
+                NoSlash(@interface.Name, $"The interface of '{path}' called", faults);
+            }
             Walk(child.Children, path, elements, mirrors, references, faults);
         }
     }
@@ -221,8 +236,26 @@ public static class WriteSpec
         {
             if (string.IsNullOrWhiteSpace(attribute.Name))
                 faults.Add($"An attribute of '{owner}' is without a name.");
+
+            // An attribute is a value or a reference. Both at once was written as the
+            // reference, and the value fell away without a word.
+            if (!string.IsNullOrWhiteSpace(attribute.Reference) &&
+                (attribute.Value is not null || attribute.DefaultValue is not null || attribute.Unit is not null))
+                faults.Add($"Attribute '{attribute.Name}' of '{owner}' has a reference and a value of its own. " +
+                           "An attribute points at an element or carries a value, not both.");
+
             Names(attribute.Attributes, owner, faults);
         }
+    }
+
+    /// <summary>
+    /// A slash in a name cannot be addressed: every path of a description is cut at the
+    /// slashes, so a name that contains one makes two different things share a path.
+    /// </summary>
+    private static void NoSlash(string? name, string what, List<string> faults)
+    {
+        if (!string.IsNullOrWhiteSpace(name) && name!.Contains('/', StringComparison.Ordinal))
+            faults.Add($"{what} '{name}' carries a slash. Paths are cut at the slashes, so a name holds none.");
     }
 
     /// <summary>Every path an attribute points at, with the attribute it sits on.</summary>

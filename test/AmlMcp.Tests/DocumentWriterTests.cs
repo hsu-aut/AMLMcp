@@ -267,4 +267,58 @@ public sealed class DocumentWriterTests : IDisposable
         // One write, one refusal, one preview: only the write leaves a file.
         Assert.Equal(new[] { "written.aml" }, FilesInWorkspace().ToArray());
     }
+
+    /// <summary>
+    /// A write may create the directory it writes into. A write that is then refused has to
+    /// take that directory with it: the caller fixes the description and tries again, and
+    /// finds the file system as it was.
+    /// </summary>
+    [Fact]
+    public void A_refused_write_takes_the_directory_it_created_with_it()
+    {
+        var directory = Path.Combine(_ws.Dir, "new", "folder");
+        // An external library that is not there: the description is sound, the document is
+        // rendered and written, and the check of the file refuses it.
+        var spec = new DocumentSpec(null, null, null,
+            new[] { new ExternalLibrarySpec("Demo", "nowhere.aml") }, null,
+            new[] { new HierarchySpec("Plant", null, new[] { new ElementSpec("A", null, null, null, null, null, null, null, null) }, null) });
+
+        Assert.Throws<McpException>(() =>
+            DocumentWriter.Write(Store(), Path.Combine(directory, "written.aml"), spec, preview: false, overwrite: false));
+
+        Assert.False(Directory.Exists(directory));
+        Assert.False(Directory.Exists(Path.Combine(_ws.Dir, "new")));
+    }
+
+    /// <summary>A directory that already holds something is none of ours to remove.</summary>
+    [Fact]
+    public void A_refused_write_leaves_a_directory_that_was_already_there()
+    {
+        var directory = Path.Combine(_ws.Dir, "existing");
+        Directory.CreateDirectory(directory);
+        var spec = new DocumentSpec(null, null, null,
+            new[] { new ExternalLibrarySpec("Demo", "nowhere.aml") }, null,
+            new[] { new HierarchySpec("Plant", null, new[] { new ElementSpec("A", null, null, null, null, null, null, null, null) }, null) });
+
+        Assert.Throws<McpException>(() =>
+            DocumentWriter.Write(Store(), Path.Combine(directory, "written.aml"), spec, preview: false, overwrite: false));
+
+        Assert.True(Directory.Exists(directory));
+    }
+
+    /// <summary>
+    /// A directory named as the target is refused as a directory, whatever it is called.
+    /// The extension is the lesser of the two reasons and must not hide the other.
+    /// </summary>
+    [Fact]
+    public void A_directory_is_refused_as_a_directory_and_not_for_its_extension()
+    {
+        var directory = Path.Combine(_ws.Dir, "folder");
+        Directory.CreateDirectory(directory);
+
+        var ex = Assert.Throws<McpException>(() =>
+            DocumentWriter.Write(Store(), directory, Sound(), preview: false, overwrite: false));
+
+        Assert.Contains("is a directory", ex.Message, StringComparison.Ordinal);
+    }
 }

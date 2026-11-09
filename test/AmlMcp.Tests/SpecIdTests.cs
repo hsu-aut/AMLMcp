@@ -46,6 +46,24 @@ public sealed class SpecIdTests
     }
 
     /// <summary>
+    /// A UUID says which rules made it. .NET writes the first three fields of a Guid little
+    /// endian, so the version nibble of the text is the high nibble of byte seven and the
+    /// variant is the high bits of byte eight. Several keys, because one key has one chance
+    /// in sixteen of carrying the right digit by accident.
+    /// </summary>
+    [Fact]
+    public void An_id_is_a_well_formed_version_eight_uuid()
+    {
+        foreach (var key in new[] { "Plant|element", "Plant/Line|element", "Plant/Line/Drill|interface", "Plant/Pipe|link" })
+        {
+            var text = Guid.Parse(SpecIds.IdFor(key)).ToString("D");
+
+            Assert.Equal('8', text[14]);
+            Assert.Contains(text[19], "89ab");
+        }
+    }
+
+    /// <summary>
     /// Two elements whose paths differ only in where the boundary sits must not collide, so
     /// the key keeps the segments apart instead of gluing them together.
     /// </summary>

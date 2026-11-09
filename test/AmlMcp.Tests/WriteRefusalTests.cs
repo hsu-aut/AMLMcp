@@ -241,6 +241,73 @@ public sealed class WriteRefusalTests : IDisposable
             written.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Two links of one hierarchy with the same name derive the same ID, so the document
+    /// would carry a duplicate. The description is refused rather than the document.
+    /// </summary>
+    [Fact]
+    public void Two_links_of_one_hierarchy_with_the_same_name_are_refused()
+    {
+        var message = Write(Of(new HierarchySpec("Plant", null,
+            new[]
+            {
+                Element("Pump", interfaces: new[] { new InterfaceSpec("Out", null), new InterfaceSpec("Back", null) }),
+                Element("Tank", interfaces: new[] { new InterfaceSpec("In", null), new InterfaceSpec("Out", null) }),
+            },
+            new[]
+            {
+                new LinkSpec("Pipe", "Plant/Pump/Out", "Plant/Tank/In"),
+                new LinkSpec("Pipe", "Plant/Tank/Out", "Plant/Pump/Back"),
+            })));
+
+        Assert.Contains("Pipe", message, StringComparison.Ordinal);
+        Assert.Contains("Plant", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A slash in a name cannot be addressed: every path of a description is cut at the
+    /// slashes, so an element called 'A/B' and a child B of an element A share a path.
+    /// </summary>
+    [Fact]
+    public void A_name_with_a_slash_in_it_is_refused()
+    {
+        var message = Write(Of(new HierarchySpec("Plant", null, new[] { Element("A/B") }, null)));
+
+        Assert.Contains("A/B", message, StringComparison.Ordinal);
+        Assert.Contains("/", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An attribute is a value or a reference. Both at once was written as the reference
+    /// and the value fell away without a word.
+    /// </summary>
+    [Fact]
+    public void An_attribute_with_a_value_and_a_reference_is_refused()
+    {
+        var message = Write(Of(new HierarchySpec("Plant", null,
+            new[]
+            {
+                Element("Target"),
+                Element("Note", attributes: new[] { new AttributeSpec("refObj", "7", null, null, "Plant/Target", null) }),
+            },
+            null)));
+
+        Assert.Contains("Plant/Note", message, StringComparison.Ordinal);
+        Assert.Contains("refObj", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A hierarchy without elements is a heading, not content. A description of nothing but
+    /// headings is a stub, and a model that sent one learns that instead of getting a file.
+    /// </summary>
+    [Fact]
+    public void A_description_of_nothing_but_empty_hierarchies_is_refused()
+    {
+        var message = Write(Of(new HierarchySpec("Plant", null, Array.Empty<ElementSpec>(), null)));
+
+        Assert.Contains("nothing to write", message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Review Focus 2: the file itself has to be UTF-8 without a byte order mark.</summary>
     [Fact]
     public void The_written_file_is_utf8_without_a_byte_order_mark()

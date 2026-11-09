@@ -80,6 +80,9 @@ public static class DocumentWriter
         // reference resolves from the right directory. The name carries a GUID: a file that
         // happens to be called written.aml.tmp is none of our business.
         var temporary = Path.Combine(Path.GetDirectoryName(target)!, $".aml-mcp-{Guid.NewGuid():N}.tmp");
+        // What the write creates, the write takes back if it is refused: the caller fixes
+        // the description and tries again, and finds the file system as it was.
+        var created = MissingDirectories(Path.GetDirectoryName(target)!);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(temporary)!);
@@ -94,6 +97,15 @@ public static class DocumentWriter
         {
             try { if (File.Exists(temporary)) File.Delete(temporary); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+
+            if (!File.Exists(target))
+                foreach (var directory in created)
+                {
+                    // Deepest first, and only while empty: anything that arrived meanwhile
+                    // is somebody else's and keeps its directory.
+                    try { Directory.Delete(directory); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException) { break; }
+                }
         }
 
         // The document the caller just created becomes the open one, so the read tools work
@@ -111,6 +123,19 @@ public static class DocumentWriter
                 $"The file was written, but this server may not read it back: {refused.Message} " +
                 "The read tools will refuse it until the directory is readable as well (--root).");
         }
+    }
+
+    /// <summary>
+    /// The directories a write would have to create, deepest first. What is already there
+    /// stays there, whatever happens.
+    /// </summary>
+    private static IReadOnlyList<string> MissingDirectories(string directory)
+    {
+        var missing = new List<string>();
+        for (var current = directory; !string.IsNullOrEmpty(current) && !Directory.Exists(current);
+             current = Path.GetDirectoryName(current) ?? "")
+            missing.Add(current);
+        return missing;
     }
 
     private static void Refuse(CheckInfo check)

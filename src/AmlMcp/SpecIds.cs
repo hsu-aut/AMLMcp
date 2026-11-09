@@ -24,8 +24,10 @@ public static class SpecIds
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
         var bytes = hash[..16];
-        // Make it a well-formed UUID: version 8 (custom) and the RFC variant.
-        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x80);
+        // Make it a well-formed UUID: version 8 (custom) and the RFC variant. Guid(byte[])
+        // reads the first three fields little endian, so the version nibble of the text is
+        // the high nibble of byte seven; the variant sits in byte eight either way.
+        bytes[7] = (byte)((bytes[7] & 0x0F) | 0x80);
         bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
         return new Guid(bytes).ToString("B");
     }
