@@ -1,10 +1,10 @@
 # AMLMcp
 
 An MCP server for AutomationML. It lets a language model client read and navigate CAEX 3.0, CAEX 2.15
-and AMLX documents without loading the XML into its context.
+and AMLX documents without loading the XML into its context, and create one.
 
-- Ten tools over one open document: overview, tree, search, element card, neighbours, path, class
-  card, class list, reference check, and show it in the editor
+- Eleven tools over one open document: overview, tree, search, element card, neighbours, path, class
+  card, class list, reference check, show it in the editor, and write a new document
 - Resolves external libraries, class inheritance, mirror objects and object references
 - Every answer names IDs and paths, so a client can check each statement in the model
 
@@ -103,6 +103,7 @@ nuget.org the PlugIn Manager finds it by itself. The editor is not needed for an
 | `list_classes` | The classes of all libraries available to the document |
 | `check_references` | Class paths that do not resolve, missing libraries, an alias whose library does not carry the class, links without partners, dangling references, mirrors without master, duplicate IDs with the elements behind them |
 | `show_in_editor` | Expands and selects one element in the AutomationML Editor the user is working in, so an answer becomes a place in their tree. The editor confirms; without an answer the tool reports that nothing was shown |
+| `write_aml_document` | Creates a document from a description, not from XML: the server renders the CAEX, generates every ID, writes the link partners in the form that resolves and adds the classes a description uses when it names no library. With `preview` it renders and checks without writing. It refuses a description that would not resolve, and writes nothing in that case |
 
 Each tool returns text for the model and `structuredContent` for programs; the record types are in
 [`src/AmlMcp/Dto.cs`](src/AmlMcp/Dto.cs). There are two resources, `aml://documents` and
@@ -115,6 +116,7 @@ Each tool returns text for the model and `structuredContent` for programs; the r
 | `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS`, several directories separated by `;` on Windows and `:` elsewhere |
 | `--follow <file>` | Answer about the document whose path this file holds, as long as the client names none. The editor panel keeps it up to date, so switching documents needs no restart. Environment: `AML_MCP_FOLLOW` |
 | `--select <file>` | Where `show_in_editor` writes its request, as JSON with `nonce`, `document`, `id` and `path`. The editor panel watches the file, selects the element and answers in `<file>.ack`. Environment: `AML_MCP_SELECT` |
+| `--write <dir>` | Allow writing below this directory, repeatable. Without it nothing is written. A readable directory is not a writable one. Environment: `AML_MCP_WRITE`, several directories separated by `;` on Windows and `:` elsewhere |
 | `--strict-conventions` | Interpret only what CAEX and the shared libraries define. Without it an attribute named `refSomething` whose value is an ID counts as a reference, and `ViewInformation`, `PortCoordinate`, `LabelOffset` and `Waypoint...` count as layout. Environment: `AML_MCP_STRICT=1` |
 | `--help`, `--version` | Print usage or version |
 
@@ -138,14 +140,18 @@ a mistyped path shows. Without `--root` the server reads whatever the user who s
 - **Names are not unique** in CAEX. A path that leads to two elements is refused with both IDs, and an
   ID used twice names every element that carries it.
 - **Layout** attributes (bounds, waypoints, port coordinates) are hidden unless asked for.
+- **A written document** is proved before it lands: rendered, read back with the same reader and run
+  through the same check. What `check_references` would call a problem is never written.
 
 Graph traversal happens in the server, not in the model, which keeps small local models usable.
 
 ## Notes
 
-The server never writes to a document. The only file it writes is the one given with `--select`, and
-only to tell an editor which element to show. XML is parsed with DTD processing disabled, so a document carrying a DOCTYPE is refused and an
-external entity is never resolved. Descriptions and attribute values reach the language model as they
+The server writes only where it was allowed to: the file given with `--select`, to tell an editor
+which element to show, and a document below a directory given with `--write`. Without `--write`
+nothing is written, an existing file is kept unless the caller asks for it to be replaced, and the
+document an editor has open is never replaced. XML is parsed with DTD processing disabled, so a
+document carrying a DOCTYPE is refused and an external entity is never resolved. Descriptions and attribute values reach the language model as they
 are, so treat documents from untrusted sources accordingly.
 
 ## Related
