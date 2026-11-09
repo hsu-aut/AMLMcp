@@ -954,6 +954,24 @@ public sealed class AmlModel
     public static string? HierarchyNameOf(XElement? e) =>
         e is null ? null : NameOf(e.AncestorsAndSelf(C + "InstanceHierarchy").FirstOrDefault());
 
+    /// <summary>
+    /// The four kinds of class CAEX has, however the caller writes one down. False for a
+    /// word that names none of them, so that a caller can be told instead of guessed at.
+    /// </summary>
+    public static bool TryClassKind(string text, out string kind)
+    {
+        var compact = new string((text ?? "").Where(char.IsLetter).ToArray()).ToLowerInvariant();
+        kind = compact switch
+        {
+            "role" or "roleclass" => "RoleClass",
+            "interface" or "interfaceclass" => "InterfaceClass",
+            "systemunit" or "systemunitclass" or "unit" or "suc" => "SystemUnitClass",
+            "attribute" or "attributetype" => "AttributeType",
+            _ => ""
+        };
+        return kind.Length > 0;
+    }
+
     /// <summary>True for anything that lives in a class library rather than a hierarchy.</summary>
     public static bool IsInClassLibrary(XElement e) =>
         e.AncestorsAndSelf().Any(a => LibraryKinds.Contains(a.Name.LocalName));

@@ -342,19 +342,11 @@ public static class AmlTools
     /// The four kinds CAEX has, however they are written. "No matching classes" for a kind
     /// that does not exist would read as a statement about the document.
     /// </summary>
-    private static string KindOf(string kind)
-    {
-        var compact = new string(kind.Where(char.IsLetter).ToArray()).ToLowerInvariant();
-        return compact switch
-        {
-            "role" or "roleclass" => "RoleClass",
-            "interface" or "interfaceclass" => "InterfaceClass",
-            "systemunit" or "systemunitclass" or "unit" or "suc" => "SystemUnitClass",
-            "attribute" or "attributetype" => "AttributeType",
-            _ => throw new McpException(
-                $"Unknown kind '{kind}'. Use RoleClass, SystemUnitClass, InterfaceClass or AttributeType.")
-        };
-    }
+    private static string KindOf(string kind) =>
+        AmlModel.TryClassKind(kind, out var wanted)
+            ? wanted
+            : throw new McpException(
+                $"Unknown kind '{kind}'. Use RoleClass, SystemUnitClass, InterfaceClass or AttributeType.");
 
     private static List<ClassInfo> MatchingClasses(AmlModel m, string? library, string? kind, string? query)
     {
