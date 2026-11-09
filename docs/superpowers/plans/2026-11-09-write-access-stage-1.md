@@ -24,6 +24,7 @@
 - The text half and the structured half come from one model, as in the existing tools, and `TextAndDataAgreeTests` grows a case for the new tool.
 - Stage 2 seams: the renderer renders a single element as well as a whole document, and the check runs on a loaded model.
 - Existing suites stay green: 188 server tests, 19 plugin tests, `python test/smoke.py examples/plant.aml`.
+- No runs in the real AutomationML Editor while this is implemented: another piece of work is using it. Stage 1 needs none. The test for a target the editor has open works with a `--follow` pointer file and no editor.
 
 ## Review Focus
 
