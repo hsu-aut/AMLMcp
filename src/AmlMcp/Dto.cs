@@ -12,7 +12,10 @@ public sealed record ContainerPartInfo(string Path, long Size, string? Role);
 
 public sealed record LibraryInfo(string Name, int Classes, bool External);
 
-public sealed record HierarchyInfo(string Name, string? Id, int Elements, int Mirrors, string? Description, IReadOnlyList<ClassCountInfo> ByClass);
+/// <summary><paramref name="ByClass"/> is bounded like every other list the server returns;
+/// <paramref name="DistinctClasses"/> says how many there are in all.</summary>
+public sealed record HierarchyInfo(string Name, string? Id, int Elements, int Mirrors, string? Description,
+    IReadOnlyList<ClassCountInfo> ByClass, int DistinctClasses);
 
 public sealed record ClassCountInfo(string Class, int Count);
 

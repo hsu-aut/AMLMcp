@@ -16,6 +16,9 @@ internal static class Structured
     public static ElementRef Ref(AmlModel m, XElement e) =>
         new(IdOf(e), NameOf(e), PathOf(e), HierarchyNameOf(e), m.ClassOf(e), m.MirrorReferenceOf(e) is not null);
 
+    /// <summary>How many classes the overview names per hierarchy, as the text half does.</summary>
+    private const int ClassBreakdown = 6;
+
     public static DocumentInfo Document(AmlModel m)
     {
         var hierarchies = m.Hierarchies.Select(ih =>
@@ -27,7 +30,8 @@ internal static class Structured
                 .Select(g => new ClassCountInfo(g.Key, g.Count()))
                 .ToList();
             return new HierarchyInfo(NameOf(ih), IdOf(ih), elements.Count,
-                elements.Count(e => m.MirrorReferenceOf(e) is not null), DescriptionOf(ih), byClass);
+                elements.Count(e => m.MirrorReferenceOf(e) is not null), DescriptionOf(ih),
+                byClass.Take(ClassBreakdown).ToList(), byClass.Count);
         }).ToList();
 
         var resolvedRefs = m.Refs.Where(r => r.Resolved).ToList();
