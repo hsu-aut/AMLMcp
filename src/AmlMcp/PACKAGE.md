@@ -28,8 +28,8 @@ writing: without it nothing is written at all.
 Eleven tools: `open_aml_document`, `get_tree`, `find_elements`, `get_element`, `get_neighbors`,
 `find_path`, `get_class`, `list_classes`, `check_references`, `show_in_editor`, which needs the
 AutomationML Editor panel and is refused without it, and `write_aml_document`, which creates a
-document from a description and needs a directory given with `--write`. Each returns readable text
-and `structuredContent` next to it.
+document from a description, validates it against the CAEX 3.0 schema and needs a directory given
+with `--write`. Each returns readable text and `structuredContent` next to it.
 
 Documentation and examples: [github.com/hsu-aut/AMLMcp](https://github.com/hsu-aut/AMLMcp).
 

@@ -31,7 +31,8 @@ public static class ServerInstructions
             text.AppendLine("You can point the user's editor at an element with show_in_editor. Use it when you name an element they would otherwise have to look up by hand.");
         if (options.WriteRoots.Count > 0)
             text.AppendLine("You can create a document with write_aml_document: describe it and the server renders the CAEX, " +
-                            "generates the IDs and refuses anything that would not resolve. Call it with preview first and show " +
+                            "generates the IDs, validates the result against the CAEX 3.0 schema and refuses anything that " +
+                            "would not resolve. Call it with preview first and show " +
                             "the user the overview and the check before you write. " +
                             $"Writable directories: {options.WriteRootsDescription}.");
         if (options.Roots.Count > 0)

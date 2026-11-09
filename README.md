@@ -140,8 +140,10 @@ a mistyped path shows. Without `--root` the server reads whatever the user who s
 - **Names are not unique** in CAEX. A path that leads to two elements is refused with both IDs, and an
   ID used twice names every element that carries it.
 - **Layout** attributes (bounds, waypoints, port coordinates) are hidden unless asked for.
-- **A written document** is proved before it lands: rendered, read back with the same reader and run
-  through the same check. What `check_references` would call a problem is never written.
+- **A written document** is proved before it lands: validated against the CAEX 3.0 schema the server
+  carries, then written beside the target, read back with the same reader and run through the same
+  check. A document the schema rejects, or that `check_references` would call a problem, is never
+  written.
 
 Graph traversal happens in the server, not in the model, which keeps small local models usable.
 

@@ -31,9 +31,9 @@ deepest directory of it that already exists, so a link at either of those two pl
 widen the fence. A link further up the chain is not followed; on Windows creating one needs
 administrator rights or developer mode, and the server never creates one. An existing file is kept unless the caller explicitly asks
 for it to be replaced, and the document an editor has open through `--follow` is never replaced. What
-is written is proved first: it is rendered, written beside the target, read back with the ordinary
-reader and run through the ordinary reference check, and a document with a problem is not written at
-all. The server prints the writable directories to stderr when it starts.
+is written is proved first: it is rendered, validated against the CAEX 3.0 schema the server carries,
+written beside the target, read back with the ordinary reader and run through the ordinary reference
+check, and a document the schema rejects or the check calls a problem is not written at all. The server prints the writable directories to stderr when it starts.
 
 **Document content reaches the language model as it is.** Descriptions, names and attribute values
 are passed through verbatim. A document from an untrusted source is untrusted input to whatever

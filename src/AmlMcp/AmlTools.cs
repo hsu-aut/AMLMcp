@@ -429,8 +429,9 @@ public static class AmlTools
     [Description("Creates a new AutomationML document from a description. You do not write CAEX: you say which class " +
                  "libraries, instance hierarchies, elements, attributes, interfaces and links the document should have, " +
                  "and the server renders the XML, generates every ID from the element's path, writes link partners in the " +
-                 "form that resolves, and adds the classes you use when you name no library. It refuses a description " +
-                 "that would not resolve and writes nothing in that case. Call it with preview first: that renders and " +
+                 "form that resolves, and adds the classes you use when you name no library. Every document is validated " +
+                 "against the CAEX 3.0 schema before it lands; a description that would not resolve or would not " +
+                 "validate is refused and nothing is written. Call it with preview first: that renders and " +
                  "checks without touching the disk and gives you the same overview and reference check you would get " +
                  "after the write, so the user can judge it. Writing needs a directory the server was started with " +
                  "(--write); an existing file is kept unless you ask for it to be replaced.")]
