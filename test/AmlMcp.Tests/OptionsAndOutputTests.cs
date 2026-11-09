@@ -246,10 +246,10 @@ public sealed class TextAndDataAgreeTests : IDisposable
 
         Assert.Equal(target, data.GetProperty("writtenTo").GetString());
         Assert.Contains(target, TextOf(result), StringComparison.Ordinal);
-        Assert.Equal(data.GetProperty("document").GetProperty("hierarchies")[0].GetProperty("elements").GetInt32(),
-            1);
-        Assert.Equal(data.GetProperty("check").GetProperty("ok").GetBoolean(),
-            TextOf(result).Contains("no problems found", StringComparison.Ordinal));
+        Assert.Equal(1,
+            data.GetProperty("document").GetProperty("hierarchies")[0].GetProperty("elements").GetInt32());
+        Assert.Equal(TextOf(result).Contains("no problems found", StringComparison.Ordinal),
+            data.GetProperty("check").GetProperty("ok").GetBoolean());
     }
 
 
