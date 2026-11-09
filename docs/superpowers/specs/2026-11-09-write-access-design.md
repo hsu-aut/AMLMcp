@@ -110,6 +110,12 @@ question is open.
 6. **An existing file is not overwritten** unless the caller says to.
 7. **A description that does not render to a resolvable document is refused**, with the
    reason, and nothing is written.
+7a. **Every document is validated against the CAEX 3.0 schema before it lands**, and the
+   schema travels with the server as an embedded resource. Added on 2026-11-10: stage 1
+   first relied on structural tests alone, and a review found six schema violations in
+   every written document that those tests did not see. Conformance by construction is not
+   conformance that is proved. `hsu-aut/AmlEngine.js` carries the same schema file, which
+   settles the question of whether it may be shipped.
 8. **Standard libraries are referenced, not shipped**, and a document without a named
    library is written self-contained. The description may name an external library; the
    server writes an `ExternalReference` for it and refuses if it does not resolve. Names it
