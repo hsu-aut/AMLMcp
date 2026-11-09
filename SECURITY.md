@@ -26,8 +26,10 @@ the readable directories to stderr when it starts.
 nothing is written at all: an assistant that asks is told that the server may not write, and may ask
 for a preview instead, which renders and checks a described document without touching the disk. A
 directory the server may read is not a directory it may write into; a directory given to both has to
-be named in both. The resolved path is what is checked, so a link inside a write directory that
-points out of it does not widen the fence. An existing file is kept unless the caller explicitly asks
+be named in both. The path is resolved before it is checked: the target itself and the
+deepest directory of it that already exists, so a link at either of those two places cannot
+widen the fence. A link further up the chain is not followed; on Windows creating one needs
+administrator rights or developer mode, and the server never creates one. An existing file is kept unless the caller explicitly asks
 for it to be replaced, and the document an editor has open through `--follow` is never replaced. What
 is written is proved first: it is rendered, written beside the target, read back with the ordinary
 reader and run through the ordinary reference check, and a document with a problem is not written at
