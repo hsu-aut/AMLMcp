@@ -205,8 +205,10 @@ public static class CaexWriter
         var cls = new XElement(C + kind, new XAttribute("Name", spec.Name));
         // An attribute type has to say what it holds; the others carry no data type.
         if (kind == "AttributeType") cls.Add(new XAttribute("AttributeDataType", "xs:string"));
+        // An attribute type derives through RefAttributeType; the schema gives it no
+        // RefBaseClassPath, which the other three kinds carry.
         if (!string.IsNullOrWhiteSpace(spec.BaseClass))
-            cls.Add(new XAttribute("RefBaseClassPath", spec.BaseClass!));
+            cls.Add(new XAttribute(kind == "AttributeType" ? "RefAttributeType" : "RefBaseClassPath", spec.BaseClass!));
         if (!string.IsNullOrWhiteSpace(spec.Description))
             cls.Add(new XElement(C + "Description", spec.Description));
         foreach (var attribute in spec.Attributes ?? Array.Empty<AttributeSpec>())

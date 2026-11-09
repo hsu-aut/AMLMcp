@@ -53,6 +53,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The CAEX 3.0 schema, as published with IEC 62714 by AutomationML e.V., unchanged.
+      Every written document is validated against it before it reaches the disk, so the
+      schema has to travel with the server. The logical name avoids the dots of the file.
+    -->
+    <EmbeddedResource Include="schema\CAEX_ClassModel_V.3.0.xsd" LogicalName="AmlMcp.CaexSchema30.xsd" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
     <None Include=".mcp\server.json" Pack="true" PackagePath="\.mcp\" />
   </ItemGroup>

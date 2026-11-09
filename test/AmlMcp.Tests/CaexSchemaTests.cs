@@ -9,9 +9,10 @@ namespace AmlMcp.Tests;
 /// that looks like AutomationML and is not.
 ///
 /// <para>
-/// These are the rules of `CAEX_ClassModel_V.3.0.xsd`, encoded here because the schema itself
-/// is published by AutomationML e.V. and is not ours to put in this repository. The full
-/// validation is a manual check; see docs/superpowers/plans for the command.
+/// These are the rules of `CAEX_ClassModel_V.3.0.xsd`, encoded here so that a broken rule
+/// names itself ("the libraries come after the hierarchies") instead of arriving as a
+/// schema message. The schema itself has the last word and runs on every write; see
+/// SchemaValidationTests.
 /// </para>
 /// </summary>
 public sealed class CaexSchemaTests

@@ -58,6 +58,15 @@ public static class DocumentWriter
 
         var document = CaexWriter.Document(SpecCompletion.Complete(spec), Path.GetFileName(target));
 
+        // The schema itself, before anything else looks at the document. A description can
+        // ask for something CAEX does not allow, and the writer renders what it is given;
+        // this is where that stops, for a preview as much as for a write.
+        var invalid = CaexSchema.Validate(document);
+        if (invalid.Count > 0)
+            throw new McpException(
+                "The described document would not satisfy the CAEX 3.0 schema, so nothing was written:" +
+                Environment.NewLine + string.Join(Environment.NewLine, invalid.Select(f => "  " + f)));
+
         if (preview)
         {
             // Nothing is written: the tree is checked where the file would lie, so a relative
