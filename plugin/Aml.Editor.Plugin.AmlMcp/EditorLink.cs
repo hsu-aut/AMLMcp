@@ -23,10 +23,14 @@ internal sealed class EditorLink : IDisposable
     /// <summary>How many answered requests to remember, so the set cannot grow all session.</summary>
     private const int Remembered = 64;
 
+    /// <summary>How much older than the panel a request may look and still count as new.</summary>
+    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(10);
+
     private readonly IEditorSelection _editor;
     private readonly Action<Action> _onUiThread;
     private readonly Action<string> _report;
     private readonly string _requestFile;
+    private readonly DateTime _since;
     private readonly FileSystemWatcher? _watcher;
     private readonly Queue<string> _answered = new();
     private readonly HashSet<string> _answeredSet = new(StringComparer.Ordinal);
@@ -38,12 +42,19 @@ internal sealed class EditorLink : IDisposable
     /// False drives the link by <see cref="Poll"/> alone, which is what the tests do: a live
     /// watcher would answer requests between their steps.
     /// </param>
-    public EditorLink(IEditorSelection editor, Action<Action> onUiThread, Action<string> report, string requestFile, bool watch = true)
+    /// <param name="since">
+    /// Requests written before this are left alone. A request file outlives the server that
+    /// wrote it, and answering a weeks-old one on startup told the user the assistant had
+    /// just pointed at a document they did not have open. Defaults to now.
+    /// </param>
+    public EditorLink(IEditorSelection editor, Action<Action> onUiThread, Action<string> report, string requestFile,
+                      bool watch = true, DateTime? since = null)
     {
         _editor = editor;
         _onUiThread = onUiThread;
         _report = report;
         _requestFile = requestFile;
+        _since = since ?? DateTime.UtcNow;
 
         var directory = Path.GetDirectoryName(_requestFile);
         if (!watch || string.IsNullOrEmpty(directory)) return;
@@ -157,6 +168,10 @@ internal sealed class EditorLink : IDisposable
             try
             {
                 if (!File.Exists(_requestFile)) return null;
+                // No server is waiting for an answer to a request from an earlier session.
+                // Generously: a file timestamp is coarser than the clock, so a request
+                // written in the same moment the panel opened must still count as new.
+                if (File.GetLastWriteTimeUtc(_requestFile) < _since - Grace) return null;
                 using var stream = new FileStream(_requestFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 using var reader = new StreamReader(stream);
                 var text = reader.ReadToEnd().Trim();
