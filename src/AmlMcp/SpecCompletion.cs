@@ -21,14 +21,25 @@ public static class SpecCompletion
         foreach (var cls in library.Classes ?? Array.Empty<ClassSpec>())
             known.Add($"{library.Name}/{cls.Name}");
 
+        // An attribute type called refObj that the description brings itself is the one to
+        // use; only without one does the server add its own.
+        var declaredReference = (spec.Libraries ?? Array.Empty<LibrarySpec>())
+            .Any(l => AmlModel.TryClassKind(l.Kind ?? "", out var k) && k == "AttributeType"
+                      && (l.Classes ?? Array.Empty<ClassSpec>()).Any(c => string.Equals(c.Name, "refObj", StringComparison.OrdinalIgnoreCase)));
+
         var added = new List<(string Library, string Kind, string Class)>();
+        var libraryClasses = (spec.Libraries ?? Array.Empty<LibrarySpec>())
+            .Select(l => Complete(l, known, added))
+            .ToList();
         var hierarchies = (spec.Hierarchies ?? Array.Empty<HierarchySpec>())
-            .Select(h => h with { Elements = Rewrite(h.Elements, known, added) })
+            .Select(h => h with { Elements = Rewrite(h.Elements, known, added, declaredReference) })
             .ToList();
 
+        // Nothing was added, so nothing was rewritten either: a path is only rewritten when
+        // the class behind it had to be created. The description then stands as it came.
         if (added.Count == 0) return spec;
 
-        var libraries = (spec.Libraries ?? Array.Empty<LibrarySpec>()).ToList();
+        var libraries = libraryClasses.ToList();
         foreach (var group in added.GroupBy(a => (a.Library, a.Kind)))
         {
             var classes = group.Select(a => a.Class).Distinct(StringComparer.OrdinalIgnoreCase)
@@ -47,8 +58,38 @@ public static class SpecCompletion
         };
     }
 
+    /// <summary>
+    /// A class of a library names a base class and interface classes of its own, and those
+    /// have to resolve as well.
+    /// </summary>
+    private static LibrarySpec Complete(LibrarySpec library, HashSet<string> known,
+                                        List<(string Library, string Kind, string Class)> added)
+    {
+        if (library.Classes is null || library.Classes.Count == 0) return library;
+        if (!AmlModel.TryClassKind(library.Kind ?? "", out var kind)) return library;
+
+        var generated = kind switch
+        {
+            "RoleClass" => RoleLib,
+            "InterfaceClass" => InterfaceLib,
+            "AttributeType" => ReferenceLib,
+            _ => UnitLib,
+        };
+        return library with
+        {
+            Classes = library.Classes.Select(c => c with
+            {
+                BaseClass = Resolve(c.BaseClass, generated, kind, known, added),
+                Interfaces = c.Interfaces?.Select(i => i with
+                {
+                    Class = Resolve(i.Class, InterfaceLib, "InterfaceClass", known, added),
+                }).ToList(),
+            }).ToList(),
+        };
+    }
+
     private static IReadOnlyList<ElementSpec>? Rewrite(IReadOnlyList<ElementSpec>? elements,
-        HashSet<string> known, List<(string Library, string Kind, string Class)> added)
+        HashSet<string> known, List<(string Library, string Kind, string Class)> added, bool declaredReference)
     {
         if (elements is null) return null;
         return elements.Select(element => element with
@@ -60,22 +101,25 @@ public static class SpecCompletion
             {
                 Class = Resolve(i.Class, InterfaceLib, "InterfaceClass", known, added),
             }).ToList(),
-            Attributes = Attributes(element.Attributes, known, added),
-            Children = Rewrite(element.Children, known, added),
+            Attributes = Attributes(element.Attributes, known, added, declaredReference),
+            Children = Rewrite(element.Children, known, added, declaredReference),
         }).ToList();
     }
 
     private static IReadOnlyList<AttributeSpec>? Attributes(IReadOnlyList<AttributeSpec>? attributes,
-        HashSet<string> known, List<(string Library, string Kind, string Class)> added)
+        HashSet<string> known, List<(string Library, string Kind, string Class)> added, bool declaredReference)
     {
         if (attributes is null) return null;
         foreach (var attribute in attributes)
         {
-            // An object reference is written with an attribute type, which has to exist too.
-            if (!string.IsNullOrWhiteSpace(attribute.Reference))
+            // An object reference is written with an attribute type, which has to exist too,
+            // unless the description already brought one.
+            if (!declaredReference && !string.IsNullOrWhiteSpace(attribute.Reference))
                 Resolve("refObj", ReferenceLib, "AttributeType", known, added);
         }
-        return attributes.Select(a => a with { Attributes = Attributes(a.Attributes, known, added) }).ToList();
+        return attributes
+            .Select(a => a with { Attributes = Attributes(a.Attributes, known, added, declaredReference) })
+            .ToList();
     }
 
     /// <summary>

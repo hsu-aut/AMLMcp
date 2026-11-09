@@ -52,6 +52,12 @@ catch (ArgumentException ex)
 Console.Error.WriteLine($"aml-mcp: readable directories: {options.RootsDescription}");
 Console.Error.WriteLine($"aml-mcp: writable directories: {options.WriteRootsDescription}");
 
+// A document written where the server may not read is a document its own tools refuse
+// afterwards. Worth a word at startup, not only in the answer that hits it.
+foreach (var writable in options.WriteRoots.Where(d => !options.Allows(d)))
+    Console.Error.WriteLine($"aml-mcp: warning: '{writable}' may be written but not read. " +
+                            "Add it to --root as well, or the read tools will refuse what was written there.");
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout belongs to the MCP protocol; all logging goes to stderr. Only what the operator

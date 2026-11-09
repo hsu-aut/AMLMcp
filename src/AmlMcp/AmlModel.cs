@@ -58,7 +58,7 @@ public sealed class AmlModel
     public DateTime LoadedWriteTimeUtc { get; }
     public XElement Root { get; }
     public long FileSize { get; }
-    public string SchemaVersion { get; }
+    public string SchemaVersion { get; private set; } = "?";
 
     /// <summary>True when the file is an AMLX container (a ZIP package).</summary>
     public bool IsContainer { get; }
@@ -90,7 +90,7 @@ public sealed class AmlModel
     public List<LinkInfo> Links { get; } = new();
     public List<RefInfo> Refs { get; } = new();
     public List<DanglingMirror> DanglingMirrors { get; } = new();
-    public List<XElement> Hierarchies { get; }
+    public List<XElement> Hierarchies { get; private set; } = new();
 
     private readonly Dictionary<string, ClassInfo> _plainIndex = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<ClassInfo>> _byName = new(StringComparer.Ordinal);
@@ -151,6 +151,35 @@ public sealed class AmlModel
                 baseLocation = Path.GetDirectoryName(path)!;
             }
 
+            Index(IsContainer ? ContainerPrefix + RootPart : path, baseLocation);
+        }
+        finally
+        {
+            _entries = null;
+            archive?.Dispose();
+            stream?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A document that is not on disk: the tree as it would be written, with the path it
+    /// would have, so that a relative ExternalReference resolves from there. This is what
+    /// lets a write be checked before anything is written.
+    /// </summary>
+    private AmlModel(XElement root, string pretendPath, ServerOptions options)
+    {
+        Options = options;
+        FilePath = pretendPath;
+        LoadedWriteTimeUtc = DateTime.UtcNow;
+        Root = root;
+        FileSize = root.ToString(SaveOptions.DisableFormatting).Length;
+        Index(pretendPath, Path.GetDirectoryName(pretendPath) ?? ".");
+    }
+
+    /// <summary>Everything that follows from the tree, however the tree was obtained.</summary>
+    private void Index(string cacheKey, string baseLocation)
+    {
+        {
             SchemaVersion = (string?)Root.Attribute("SchemaVersion") ?? "?";
 
             foreach (var el in Root.DescendantsAndSelf())
@@ -169,10 +198,10 @@ public sealed class AmlModel
                     CaseVariantIds.Add(id);
             }
 
-            _fileCache[IsContainer ? ContainerPrefix + RootPart : path] = Root;
+            _fileCache[cacheKey] = Root;
 
             Hierarchies = Root.Elements(C + "InstanceHierarchy").ToList();
-            IndexClasses(Root, IsContainer ? ContainerPrefix + RootPart : path, alias: null, external: false);
+            IndexClasses(Root, cacheKey, alias: null, external: false);
             LoadExternalReferences(Root, baseLocation, inContainer: IsContainer, depth: 0, topLevel: true);
             var missing = ExternalRefs.Where(r => !r.Loaded).Select(r => Path.GetFileName(r.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             NestedLibraryProblems.RemoveAll(r => missing.Contains(Path.GetFileName(r.Path)));
@@ -180,16 +209,19 @@ public sealed class AmlModel
             IndexReferences();
             IndexMirrors();
         }
-        finally
-        {
-            _entries = null;
-            archive?.Dispose();
-            stream?.Dispose();
-        }
     }
 
     public static AmlModel Load(string path, ServerOptions? options = null) =>
         new(Path.GetFullPath(path), options ?? ServerOptions.Default);
+
+    /// <summary>
+    /// A model of a document that does not exist yet. <paramref name="pretendPath"/> is the
+    /// path it would have: the directory it names is where a relative ExternalReference is
+    /// looked for, so that checking a document before writing it gives the same answer as
+    /// checking it afterwards.
+    /// </summary>
+    public static AmlModel FromTree(XElement root, string pretendPath, ServerOptions? options = null) =>
+        new(root, Path.GetFullPath(pretendPath), options ?? ServerOptions.Default);
 
     // ------------------------------------------------------------------ loading
 

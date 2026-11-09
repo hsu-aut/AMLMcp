@@ -116,7 +116,7 @@ Each tool returns text for the model and `structuredContent` for programs; the r
 | `--root <dir>` | Read only below this directory, repeatable. Also applies to the libraries an `ExternalReference` points at. Environment: `AML_MCP_ROOTS`, several directories separated by `;` on Windows and `:` elsewhere |
 | `--follow <file>` | Answer about the document whose path this file holds, as long as the client names none. The editor panel keeps it up to date, so switching documents needs no restart. Environment: `AML_MCP_FOLLOW` |
 | `--select <file>` | Where `show_in_editor` writes its request, as JSON with `nonce`, `document`, `id` and `path`. The editor panel watches the file, selects the element and answers in `<file>.ack`. Environment: `AML_MCP_SELECT` |
-| `--write <dir>` | Allow writing below this directory, repeatable. Without it nothing is written. A readable directory is not a writable one. Environment: `AML_MCP_WRITE`, several directories separated by `;` on Windows and `:` elsewhere |
+| `--write <dir>` | Allow writing below this directory, repeatable. Without it nothing is written. A readable directory is not a writable one, and a writable directory should be named in `--root` too, or the read tools refuse what was written there. The server warns at startup when it is not. Environment: `AML_MCP_WRITE`, several directories separated by `;` on Windows and `:` elsewhere |
 | `--strict-conventions` | Interpret only what CAEX and the shared libraries define. Without it an attribute named `refSomething` whose value is an ID counts as a reference, and `ViewInformation`, `PortCoordinate`, `LabelOffset` and `Waypoint...` count as layout. Environment: `AML_MCP_STRICT=1` |
 | `--help`, `--version` | Print usage or version |
 

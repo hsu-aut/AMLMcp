@@ -460,7 +460,9 @@ public static class AmlTools
         var sb = new StringBuilder(outcome.WrittenTo is null
             ? "Preview: nothing was written. This is the document that would be written."
             : $"Written: {outcome.WrittenTo}");
-        sb.AppendLine().AppendLine();
+        sb.AppendLine();
+        if (outcome.Note is { } note) sb.AppendLine(note);
+        sb.AppendLine();
         sb.AppendLine(OpenDocumentText(outcome.Model));
         sb.Append(CheckText(outcome.Model));
         return sb.ToString();

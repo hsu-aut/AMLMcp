@@ -46,9 +46,10 @@ public sealed class CaexWriterTests
         var document = Render(new HierarchySpec("Plant", null, new[] { Plain("A") }, null));
         var source = document.Element(C + "SourceDocumentInformation");
 
+        // The schema has no Writer attributes; the Origin family is what it allows.
         Assert.NotNull(source);
-        Assert.Equal("aml-mcp", (string?)source!.Attribute("WriterName"));
-        Assert.False(string.IsNullOrWhiteSpace((string?)source.Attribute("WriterVersion")));
+        Assert.Equal("aml-mcp", (string?)source!.Attribute("OriginName"));
+        Assert.False(string.IsNullOrWhiteSpace((string?)source.Attribute("OriginVersion")));
         Assert.False(string.IsNullOrWhiteSpace((string?)source.Attribute("LastWritingDateTime")));
     }
 
@@ -128,7 +129,8 @@ public sealed class CaexWriterTests
             },
             new[] { new LinkSpec("Pipe", "Plant/Pump/Out", "Plant/Tank/In") }));
 
-        var link = Hierarchy(document, "Plant").Elements(C + "InternalLink").Single();
+        // A link lives in an element, never under the hierarchy: see CaexSchemaTests.
+        var link = document.Descendants(C + "InternalLink").Single();
 
         Assert.Equal("Pipe", (string?)link.Attribute("Name"));
         Assert.Equal(SpecIds.IdFor(SpecIds.KeyOf("Plant/Pump/Out", "interface")), (string?)link.Attribute("RefPartnerSideA"));
@@ -143,7 +145,7 @@ public sealed class CaexWriterTests
                 new[] { new LinkSpec("Across", "Plant/Pump/Out", "Process/Step/In") }),
             new HierarchySpec("Process", null, new[] { Plain("Step", interfaces: new[] { new InterfaceSpec("In", null) }) }, null));
 
-        var link = Hierarchy(document, "Plant").Elements(C + "InternalLink").Single();
+        var link = document.Descendants(C + "InternalLink").Single();
 
         Assert.Equal(SpecIds.IdFor(SpecIds.KeyOf("Process/Step/In", "interface")), (string?)link.Attribute("RefPartnerSideB"));
     }
