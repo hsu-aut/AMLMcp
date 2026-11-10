@@ -79,7 +79,9 @@ Other clients take the same command in their configuration file:
 The panel in `plugin/` carries the server, registers it with Claude Desktop in one click, and reads the
 document that is open in the editor. It keeps `--follow` up to date, so the assistant answers about
 whatever document you open there, and it watches `--select`, so the assistant can expand and highlight
-an element in the tree. Build it on Windows with the .NET 10 SDK; the server is published into the
+an element in the tree. A checkbox next to the readable directory passes it as `--write` as well, so
+the assistant may create new documents there; it is off until the user ticks it, and the open
+document is never changed either way. Build it on Windows with the .NET 10 SDK; the server is published into the
 plugin as part of that build:
 
 ```powershell

@@ -36,6 +36,9 @@ Not released yet.
 - `show_in_editor` points the editor at an element. It is a handshake: the panel confirms what it
   did, and the tool reports that the editor showed another document, or that none answered, instead
   of claiming success. A request left over from an earlier session is ignored.
+- A checkbox next to the readable directory lets the assistant create new documents in that
+  directory, by passing it as the write fence as well. It is off until the user ticks it, the panel
+  shows the entry it writes, and the document open in the editor is never changed.
 - The plugin package carries the matching server, which the release checks before publishing.
 
 ### Reading, corrected

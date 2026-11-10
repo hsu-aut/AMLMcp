@@ -33,7 +33,9 @@ administrator rights or developer mode, and the server never creates one. An exi
 for it to be replaced, and the document an editor has open through `--follow` is never replaced. What
 is written is proved first: it is rendered, validated against the CAEX 3.0 schema the server carries,
 written beside the target, read back with the ordinary reader and run through the ordinary reference
-check, and a document the schema rejects or the check calls a problem is not written at all. The server prints the writable directories to stderr when it starts.
+check, and a document the schema rejects or the check calls a problem is not written at all. The server prints the writable directories to stderr when it starts. The editor panel sets a write
+directory only when the user ticks the box beside the readable directory, and it shows the entry it
+writes before writing it.
 
 **Document content reaches the language model as it is.** Descriptions, names and attribute values
 are passed through verbatim. A document from an untrusted source is untrusted input to whatever
