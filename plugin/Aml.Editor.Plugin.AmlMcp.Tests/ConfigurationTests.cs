@@ -100,6 +100,54 @@ public sealed class ConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void Permission_to_create_documents_adds_the_write_fence_for_the_same_directory()
+    {
+        var arguments = McpProbe.Configuration(Exe, @"C:\models", writable: true)["mcpServers"]!["aml"]!["args"]!
+            .AsArray().Select(a => a!.ToString()).ToList();
+
+        Assert.Equal(
+            new[] { "--root", @"C:\models", "--write", @"C:\models", "--follow", McpProbe.PointerFile, "--select", McpProbe.SelectFile },
+            arguments);
+    }
+
+    [Fact]
+    public void Without_that_permission_the_entry_carries_no_write_fence()
+    {
+        var arguments = McpProbe.Configuration(Exe, @"C:\models")["mcpServers"]!["aml"]!["args"]!
+            .AsArray().Select(a => a!.ToString()).ToList();
+
+        Assert.DoesNotContain("--write", arguments);
+    }
+
+    [Fact]
+    public void Without_a_directory_there_is_nothing_to_write_into_either()
+    {
+        var arguments = McpProbe.Configuration(Exe, "   ", writable: true)["mcpServers"]!["aml"]!["args"]!
+            .AsArray().Select(a => a!.ToString()).ToList();
+
+        Assert.DoesNotContain("--write", arguments);
+        Assert.DoesNotContain("--root", arguments);
+    }
+
+    [Fact]
+    public void Granting_the_permission_makes_the_entry_out_of_date()
+    {
+        McpProbe.RegisterWithClaudeDesktop(Exe, @"C:\models", _configFile);
+
+        Assert.True(McpProbe.ClaudeDesktopIsCurrent(Exe, @"C:\models", _configFile));
+        Assert.False(McpProbe.ClaudeDesktopIsCurrent(Exe, @"C:\models", _configFile, writable: true));
+    }
+
+    [Fact]
+    public void Withdrawing_the_permission_makes_the_entry_out_of_date_as_well()
+    {
+        McpProbe.RegisterWithClaudeDesktop(Exe, @"C:\models", _configFile, writable: true);
+
+        Assert.True(McpProbe.ClaudeDesktopIsCurrent(Exe, @"C:\models", _configFile, writable: true));
+        Assert.False(McpProbe.ClaudeDesktopIsCurrent(Exe, @"C:\models", _configFile));
+    }
+
+    [Fact]
     public void A_configuration_that_is_not_json_is_refused_with_its_path()
     {
         File.WriteAllText(_configFile, "this is not json");

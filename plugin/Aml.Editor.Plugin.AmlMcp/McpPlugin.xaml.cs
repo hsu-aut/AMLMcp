@@ -25,6 +25,9 @@ public partial class McpPlugin : PluginViewBase
         IsReactive = false;
 
         RootBox.TextChanged += (_, _) => _rootEdited = true;
+        // Granting or withdrawing the permission changes the entry, so the warning is re-checked.
+        WriteBox.Checked += (_, _) => WarnWhenAssistantIsOutOfDate();
+        WriteBox.Unchecked += (_, _) => WarnWhenAssistantIsOutOfDate();
         ShowDefaultQuestions(null);
 
         // Lets the assistant select an element in the editor's tree. Docking, floating and
@@ -106,9 +109,13 @@ public partial class McpPlugin : PluginViewBase
     private void WarnWhenAssistantIsOutOfDate()
     {
         if (ServerPath() is not { } exe) return;
-        if (McpProbe.ClaudeDesktopIsCurrent(exe, Root())) return;
-        if (!File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json"))) return;
-        Status(false, "Claude Desktop is configured for an older version or another directory: press Register, then restart it");
+        if (!File.Exists(McpProbe.ClaudeDesktopConfigFile)) return;
+        if (McpProbe.ClaudeDesktopIsCurrent(exe, Root(), writable: Writable()))
+        {
+            Status(true, "Claude Desktop is configured for this directory");
+            return;
+        }
+        Status(false, "Claude Desktop is configured for another directory, another permission or an older version: press Register, then restart it");
     }
 
     private void OnBrowse(object sender, RoutedEventArgs e)
@@ -133,6 +140,9 @@ public partial class McpPlugin : PluginViewBase
     }
 
     private string Root() => RootBox.Text.Trim();
+
+    /// <summary>Whether the user allows the assistant to create documents in that directory.</summary>
+    private bool Writable() => WriteBox.IsChecked == true;
 
     private void Status(bool ok, string text)
     {
@@ -201,14 +211,16 @@ public partial class McpPlugin : PluginViewBase
         if (ServerPath() is not { } exe) return;
         try
         {
-            var path = McpProbe.RegisterWithClaudeDesktop(exe, Root());
+            var path = McpProbe.RegisterWithClaudeDesktop(exe, Root(), writable: Writable());
             Status(true, "registered with Claude Desktop, restart it to pick the server up");
             ResultBox.Visibility = Visibility.Visible;
             ResultHeadline.Text = "Claude Desktop";
             ResultFacts.Text = path;
-            ResultVerdict.Text = $"The assistant may now read {Root()} and follows the document you open here";
+            ResultVerdict.Text = Writable()
+                ? $"The assistant may now read {Root()}, create new documents there, and follows the document you open here"
+                : $"The assistant may now read {Root()} and follows the document you open here";
             ResultVerdict.Foreground = Good;
-            Details.Text = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
+            Details.Text = McpProbe.Configuration(exe, Root(), Writable()).ToJsonString(McpProbe.Pretty);
         }
         catch (Exception ex)
         {
@@ -219,7 +231,7 @@ public partial class McpPlugin : PluginViewBase
     private void OnCopyConfiguration(object sender, RoutedEventArgs e)
     {
         if (ServerPath() is not { } exe) return;
-        var json = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
+        var json = McpProbe.Configuration(exe, Root(), Writable()).ToJsonString(McpProbe.Pretty);
         Clipboard.SetText(json);
         Status(true, "configuration copied, paste it into your assistant's settings");
         ResultBox.Visibility = Visibility.Visible;

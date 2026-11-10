@@ -273,13 +273,24 @@ internal sealed class McpProbe : IDisposable
         }
     }
 
-    public static JsonObject Configuration(string exePath, string? root)
+    /// <param name="writable">
+    /// Whether the assistant may create new documents in <paramref name="root"/>. Off unless the
+    /// user ticks it in the panel: the server writes nothing without a fence, and the fence is
+    /// the same directory the panel already reads, so what was written can be read back. Without
+    /// a readable directory there is nothing to write into either.
+    /// </param>
+    public static JsonObject Configuration(string exePath, string? root, bool writable = false)
     {
         var args = new JsonArray();
         if (!string.IsNullOrWhiteSpace(root))
         {
             args.Add("--root");
             args.Add(root);
+            if (writable)
+            {
+                args.Add("--write");
+                args.Add(root);
+            }
         }
         args.Add("--follow");
         args.Add(PointerFile);
@@ -299,14 +310,15 @@ internal sealed class McpProbe : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json");
 
     /// <summary>True when Claude Desktop is configured exactly as this panel would configure it.</summary>
-    public static bool ClaudeDesktopIsCurrent(string exePath, string? root, string? configFile = null)
+    public static bool ClaudeDesktopIsCurrent(string exePath, string? root, string? configFile = null,
+        bool writable = false)
     {
         try
         {
             var path = configFile ?? ClaudeDesktopConfigFile;
             if (!File.Exists(path)) return false;
             var stored = (JsonNode.Parse(File.ReadAllText(path)) as JsonObject)?["mcpServers"]?["aml"];
-            var wanted = Configuration(exePath, root)["mcpServers"]!["aml"];
+            var wanted = Configuration(exePath, root, writable)["mcpServers"]!["aml"];
             return stored is not null && JsonNode.DeepEquals(stored, wanted);
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
@@ -316,7 +328,8 @@ internal sealed class McpProbe : IDisposable
     }
 
     /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
-    public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null)
+    public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null,
+        bool writable = false)
     {
         var path = configFile ?? ClaudeDesktopConfigFile;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -338,7 +351,7 @@ internal sealed class McpProbe : IDisposable
             servers = new JsonObject();
             configuration["mcpServers"] = servers;
         }
-        servers["aml"] = Configuration(exePath, root)["mcpServers"]!["aml"]!.DeepClone();
+        servers["aml"] = Configuration(exePath, root, writable)["mcpServers"]!["aml"]!.DeepClone();
 
         File.WriteAllText(path, configuration.ToJsonString(Pretty));
         return path;
