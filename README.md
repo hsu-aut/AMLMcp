@@ -23,6 +23,7 @@ assistant and points it at the document in the editor.
 | `test/smoke.py` | Protocol level test, speaks MCP over stdio |
 | `examples/` | Four small documents to try it on |
 | `plugin/` | AutomationML Editor panel that ships the server and registers it with an assistant (Windows), with its own tests |
+| `CHANGELOG.md` | What changed in each version |
 
 ## Build
 
