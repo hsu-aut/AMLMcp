@@ -806,7 +806,12 @@ public sealed class ShowInEditorTests : IDisposable
     private readonly Workspace _ws = new();
     private readonly TimeSpan _patience = EditorHandshake.Patience;
 
-    public ShowInEditorTests() => EditorHandshake.Patience = TimeSpan.FromMilliseconds(600);
+    /// <summary>
+    /// Shortens the handshake for the tests that expect no answer, so they do not sit out the
+    /// whole deadline. The tests that do answer keep the real one: a short deadline made them
+    /// fail whenever the machine was busy, which is a fault of the test, not of the handshake.
+    /// </summary>
+    private static void NoAnswerExpected() => EditorHandshake.Patience = TimeSpan.FromMilliseconds(300);
 
     public void Dispose()
     {
@@ -832,29 +837,39 @@ public sealed class ShowInEditorTests : IDisposable
     /// Stands in for the editor panel: answers a request once. Like the panel it tells requests
     /// apart by their nonce, so an old file is not answered again.
     /// </summary>
-    private Task PlayEditor(string status, string? detail = null, Action<ShowRequest>? inspect = null) => Task.Run(() =>
+    private Task PlayEditor(string status, string? detail = null, Action<ShowRequest>? inspect = null)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (DateTime.UtcNow < deadline)
+        // Its own thread, and the caller waits until it is watching. On the thread pool it could
+        // start after the handshake had already given up, which looked like a server that never
+        // got an answer.
+        using var watching = new ManualResetEventSlim(false);
+        var editor = Task.Factory.StartNew(() =>
         {
-            try
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            watching.Set();
+            while (DateTime.UtcNow < deadline)
             {
-                if (File.Exists(SelectFile))
+                try
                 {
-                    var request = System.Text.Json.JsonSerializer.Deserialize<ShowRequest>(File.ReadAllText(SelectFile));
-                    if (request is not null && _answered.Add(request.Nonce))
+                    if (File.Exists(SelectFile))
                     {
-                        inspect?.Invoke(request);
-                        File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
-                            System.Text.Json.JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
-                        return;
+                        var request = System.Text.Json.JsonSerializer.Deserialize<ShowRequest>(File.ReadAllText(SelectFile));
+                        if (request is not null && _answered.Add(request.Nonce))
+                        {
+                            inspect?.Invoke(request);
+                            File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
+                                System.Text.Json.JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
+                            return;
+                        }
                     }
                 }
+                catch (IOException) { /* the server may still be writing */ }
+                Thread.Sleep(10);
             }
-            catch (IOException) { /* the server may still be writing */ }
-            Thread.Sleep(10);
-        }
-    });
+        }, TaskCreationOptions.LongRunning);
+        watching.Wait();
+        return editor;
+    }
 
     [Fact]
     public void The_request_names_the_document_the_element_and_a_nonce()
@@ -894,6 +909,8 @@ public sealed class ShowInEditorTests : IDisposable
     [Fact]
     public void Without_an_answer_the_call_does_not_claim_that_anything_was_shown()
     {
+        NoAnswerExpected();
+
         var message = Answer.Error(AmlTools.ShowInEditor(Store(), "Station1"));
 
         Assert.Contains("No AutomationML Editor answered", message);
@@ -934,6 +951,7 @@ public sealed class ShowInEditorTests : IDisposable
     [Fact]
     public void An_answer_to_an_older_request_is_not_taken_for_this_one()
     {
+        NoAnswerExpected();
         var store = Store();
         File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
             System.Text.Json.JsonSerializer.Serialize(new ShowAck("an-old-nonce", "selected")));
