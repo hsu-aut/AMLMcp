@@ -97,6 +97,21 @@ public partial class McpPlugin : PluginViewBase
         UseDocument(amlFilePath);
     }
 
+    /// <summary>
+    /// The editor calls this on every active plugin when it has loaded a document, and for this
+    /// panel it is the only notification that arrives: ChangeAMLFilePath reaches a plugin only
+    /// while it is both reactive and active, and this one is deliberately not reactive, so that
+    /// opening a document does not pull its tab to the front. Without this override a document
+    /// opened after the panel was built went unnoticed: the readable directory stayed empty, the
+    /// server was registered without a fence, and the file the assistant follows was whatever an
+    /// earlier session had left behind.
+    /// </summary>
+    public override void PublishAutomationMLFileAndObject(string amlFilePath, Aml.Engine.CAEX.CAEXBasicObject selectedObject)
+    {
+        base.PublishAutomationMLFileAndObject(amlFilePath, selectedObject);
+        UseDocument(amlFilePath);
+    }
+
     private void UseDocument(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
