@@ -327,6 +327,26 @@ internal sealed class McpProbe : IDisposable
         }
     }
 
+    /// <summary>
+    /// Whether the stored entry already allows writing. The panel asks on startup: the checkbox
+    /// would otherwise show no permission while the configuration still carries one, and the panel
+    /// would then call its own entry out of date and offer to withdraw it unasked.
+    /// </summary>
+    public static bool ClaudeDesktopMayWrite(string? configFile = null)
+    {
+        try
+        {
+            var path = configFile ?? ClaudeDesktopConfigFile;
+            if (!File.Exists(path)) return false;
+            var args = (JsonNode.Parse(File.ReadAllText(path)) as JsonObject)?["mcpServers"]?["aml"]?["args"];
+            return args is JsonArray stored && stored.Any(a => a?.ToString() == "--write");
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
     public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null,
         bool writable = false)

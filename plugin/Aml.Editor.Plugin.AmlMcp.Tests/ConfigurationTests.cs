@@ -148,6 +148,28 @@ public sealed class ConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void A_stored_permission_is_read_back_so_the_panel_can_show_it()
+    {
+        McpProbe.RegisterWithClaudeDesktop(Exe, @"C:\models", _configFile, writable: true);
+
+        Assert.True(McpProbe.ClaudeDesktopMayWrite(_configFile));
+    }
+
+    [Fact]
+    public void Without_a_stored_permission_the_panel_is_told_so()
+    {
+        McpProbe.RegisterWithClaudeDesktop(Exe, @"C:\models", _configFile);
+
+        Assert.False(McpProbe.ClaudeDesktopMayWrite(_configFile));
+    }
+
+    [Fact]
+    public void A_missing_configuration_grants_no_permission()
+    {
+        Assert.False(McpProbe.ClaudeDesktopMayWrite(_configFile));
+    }
+
+    [Fact]
     public void A_configuration_that_is_not_json_is_refused_with_its_path()
     {
         File.WriteAllText(_configFile, "this is not json");

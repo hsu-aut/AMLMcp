@@ -15,6 +15,7 @@ public partial class McpPlugin : PluginViewBase
 
     private string? _documentPath;
     private bool _rootEdited;
+    private bool _permissionRead;
     private EditorLink? _link;
     private DispatcherTimer? _poll;
 
@@ -45,6 +46,13 @@ public partial class McpPlugin : PluginViewBase
                 _poll = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
                     (_, _) => _link?.Poll(), Dispatcher);
                 _poll.Start();
+            }
+            // Once per session, and before the warning: the configuration is what counts, not the
+            // state a fresh checkbox happens to start in.
+            if (!_permissionRead)
+            {
+                _permissionRead = true;
+                WriteBox.IsChecked = McpProbe.ClaudeDesktopMayWrite();
             }
             WarnWhenAssistantIsOutOfDate();
         };
