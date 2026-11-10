@@ -9,7 +9,8 @@ using static AmlMcp.AmlModel;
 namespace AmlMcp;
 
 /// <summary>
-/// Read-only MCP tools over AutomationML (CAEX 3.0 and 2.15) documents. Every
+/// MCP tools over AutomationML (CAEX 3.0 and 2.15) documents. Ten of them read;
+/// write_aml_document creates a document, and only where --write allows it. Every
 /// answer names element IDs and paths so a client can verify each statement in
 /// the model itself.
 /// </summary>

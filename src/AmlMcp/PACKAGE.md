@@ -1,7 +1,8 @@
 # AutomationML.McpServer
 
 An MCP server for AutomationML: it lets a language model client read and navigate CAEX 3.0, CAEX 2.15
-and AMLX documents. It runs locally over stdio, only reads files, and needs no AutomationML Editor.
+and AMLX documents, and create one. It runs locally over stdio, needs no AutomationML Editor, and
+writes nothing unless it is given a directory with `--write`.
 
 ```bash
 dotnet tool install --global AutomationML.McpServer
