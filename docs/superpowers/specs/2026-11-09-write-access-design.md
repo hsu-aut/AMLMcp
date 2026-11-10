@@ -96,6 +96,15 @@ question is open.
    open the file afterwards, which gives visibility without putting the editor in the
    writing path. Rationale: reach, and the editor's own services rename on insert and empty
    references on delete, which is a problem stage 2 has to solve and stage 1 need not.
+1a. **The panel may grant the write fence, with a checkbox.** Added on 2026-11-10, after the user
+   asked why the plugin promises no writing. Keeping the editor out of the writing path was the
+   decision; withholding the fence from the panel was not, it was mine while building, and it made
+   the feature of this version unreachable for the people who install the plugin, which is the only
+   channel until the server package is published. The panel passes the readable directory as
+   `--write` as well when the user ticks the box beside it, off by default, read back from the
+   stored configuration on startup. The editor still performs no write: the server creates a new
+   file and never touches the open document. The panel button for opening what was written stays
+   with stage 2.
 2. **One call writes one document.** Not a sequence of fine-grained edits. A whole model
    over thirty calls is slow, breaks in the middle, and leaves something half-built.
    Fine-grained operations answer a different question, which is editing, which is stage 2.
