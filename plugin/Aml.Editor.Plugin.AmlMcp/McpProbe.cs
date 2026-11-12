@@ -273,13 +273,24 @@ internal sealed class McpProbe : IDisposable
         }
     }
 
-    public static JsonObject Configuration(string exePath, string? root)
+    /// <param name="writable">
+    /// Whether the assistant may create new documents in <paramref name="root"/>. Off unless the
+    /// user ticks it in the panel: the server writes nothing without a fence, and the fence is
+    /// the same directory the panel already reads, so what was written can be read back. Without
+    /// a readable directory there is nothing to write into either.
+    /// </param>
+    public static JsonObject Configuration(string exePath, string? root, bool writable = false)
     {
         var args = new JsonArray();
         if (!string.IsNullOrWhiteSpace(root))
         {
             args.Add("--root");
             args.Add(root);
+            if (writable)
+            {
+                args.Add("--write");
+                args.Add(root);
+            }
         }
         args.Add("--follow");
         args.Add(PointerFile);
@@ -299,14 +310,15 @@ internal sealed class McpProbe : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json");
 
     /// <summary>True when Claude Desktop is configured exactly as this panel would configure it.</summary>
-    public static bool ClaudeDesktopIsCurrent(string exePath, string? root, string? configFile = null)
+    public static bool ClaudeDesktopIsCurrent(string exePath, string? root, string? configFile = null,
+        bool writable = false)
     {
         try
         {
             var path = configFile ?? ClaudeDesktopConfigFile;
             if (!File.Exists(path)) return false;
             var stored = (JsonNode.Parse(File.ReadAllText(path)) as JsonObject)?["mcpServers"]?["aml"];
-            var wanted = Configuration(exePath, root)["mcpServers"]!["aml"];
+            var wanted = Configuration(exePath, root, writable)["mcpServers"]!["aml"];
             return stored is not null && JsonNode.DeepEquals(stored, wanted);
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
@@ -315,32 +327,73 @@ internal sealed class McpProbe : IDisposable
         }
     }
 
-    /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
-    public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null)
+    /// <summary>
+    /// Whether the stored entry already allows writing. The panel asks on startup: the checkbox
+    /// would otherwise show no permission while the configuration still carries one, and the panel
+    /// would then call its own entry out of date and offer to withdraw it unasked.
+    /// </summary>
+    public static bool ClaudeDesktopMayWrite(string? configFile = null)
     {
-        var path = configFile ?? ClaudeDesktopConfigFile;
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        try
+        {
+            var path = configFile ?? ClaudeDesktopConfigFile;
+            if (!File.Exists(path)) return false;
+            var args = (JsonNode.Parse(File.ReadAllText(path)) as JsonObject)?["mcpServers"]?["aml"]?["args"];
+            return args is JsonArray stored && stored.Any(a => a?.ToString() == "--write");
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
+    public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null,
+        bool writable = false)
+        => RegisterInFile(exePath, root, configFile ?? ClaudeDesktopConfigFile, writable).Path;
+
+    /// <summary>Where the entry went: the file, the key it went under, and what else is in there.</summary>
+    public sealed record ClientEntry(string Path, string Key, int OtherServers);
+
+    /// <summary>
+    /// Writes the server into any MCP client's configuration file and keeps everything else in it.
+    /// The clients disagree on one thing: most of them, Claude Desktop and Claude Code among them,
+    /// list servers under "mcpServers", while VS Code uses "servers" and wants the transport named
+    /// in the entry. The file decides which it is; a file that has neither key, and a file that
+    /// does not exist yet, get the common shape.
+    /// </summary>
+    public static ClientEntry RegisterInFile(string exePath, string? root, string configFile,
+        bool writable = false)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(configFile)!);
 
         JsonObject configuration;
         try
         {
-            configuration = File.Exists(path)
-                ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject()
+            configuration = File.Exists(configFile)
+                ? JsonNode.Parse(File.ReadAllText(configFile)) as JsonObject ?? new JsonObject()
                 : new JsonObject();
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"{path} is not valid JSON. Fix or remove the file, then try again.");
+            throw new InvalidOperationException(
+                $"{configFile} is not valid JSON. Fix or remove the file, then try again.");
         }
 
-        if (configuration["mcpServers"] is not JsonObject servers)
+        var key = configuration["mcpServers"] is not JsonObject && configuration["servers"] is JsonObject
+            ? "servers"
+            : "mcpServers";
+        if (configuration[key] is not JsonObject servers)
         {
             servers = new JsonObject();
-            configuration["mcpServers"] = servers;
+            configuration[key] = servers;
         }
-        servers["aml"] = Configuration(exePath, root)["mcpServers"]!["aml"]!.DeepClone();
 
-        File.WriteAllText(path, configuration.ToJsonString(Pretty));
-        return path;
+        var entry = (JsonObject)Configuration(exePath, root, writable)["mcpServers"]!["aml"]!.DeepClone();
+        if (key == "servers") entry["type"] = "stdio";
+        servers["aml"] = entry;
+
+        File.WriteAllText(configFile, configuration.ToJsonString(Pretty));
+        return new ClientEntry(configFile, key, servers.Count - 1);
     }
 }

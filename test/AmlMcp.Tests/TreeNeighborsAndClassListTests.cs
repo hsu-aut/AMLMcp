@@ -88,9 +88,9 @@ public sealed class TreeTests : IDisposable
     [Fact]
     public void The_tree_of_an_unknown_element_says_so()
     {
-        var ex = Assert.Throws<ModelContextProtocol.McpException>(() => AmlTools.GetTree(_rich, "NoSuchThing"));
+        var message = Answer.Error(AmlTools.GetTree(_rich, "NoSuchThing"));
 
-        Assert.Contains("No element 'NoSuchThing'", ex.Message);
+        Assert.Contains("No element 'NoSuchThing'", message);
     }
 }
 
@@ -119,10 +119,13 @@ public sealed class NeighborTests : IDisposable
         Assert.Contains("Neighbours of Plant/Motor1", text);
         Assert.Contains("hop 1 from Motor1: <--refObj--  Groups/Note", text);
         Assert.Contains("hop 1 from Motor1: <--mirrored by--  Groups/Motor1", text);
+        // The same partner twice, because it mirrors the element and its interface: two
+        // relations, and which one it is decides what an answer may say about it.
+        Assert.Contains("hop 1 from Motor1: <--mirrored by (interface Power)--  Groups/Motor1", text);
 
         Assert.Equal("Plant/Motor1", data.GetProperty("from").GetProperty("path").GetString());
-        Assert.Equal(2, data.GetProperty("total").GetInt32());
-        Assert.Equal(new[] { "referenced-by", "mirrored-by" }, Answer.Strings(data.GetProperty("neighbors"), "kind").ToArray());
+        Assert.Equal(3, data.GetProperty("total").GetInt32());
+        Assert.Equal(new[] { "referenced-by", "mirrored-by", "mirrored-by" }, Answer.Strings(data.GetProperty("neighbors"), "kind").ToArray());
         Assert.All(data.GetProperty("neighbors").EnumerateArray(), n =>
         {
             Assert.Equal(1, n.GetProperty("hop").GetInt32());
@@ -167,17 +170,18 @@ public sealed class NeighborTests : IDisposable
 
         Assert.Contains("--link OneToTwo", Answer.Text(all));
         Assert.Contains("--link OneToThree", Answer.Text(all));
-        // Two partners, although three edges lead to them: a neighbour already
-        // reached is not reported twice (the element card lists every edge).
-        Assert.Equal(2, Answer.Data(all).GetProperty("total").GetInt32());
+        // Three edges to two partners, and all three are reported: Station2 is a link
+        // partner and points at Station1 through its Origin attribute as well.
+        Assert.Equal(3, Answer.Data(all).GetProperty("total").GetInt32());
+        Assert.Contains("<--Origin--  Shopfloor/Station2", Answer.Text(all));
 
         Assert.Contains("none", Answer.Text(cross));
         Assert.Equal(0, Answer.Data(cross).GetProperty("total").GetInt32());
 
         // In a document that does connect two hierarchies the filter keeps them.
         var tricky = AmlTools.GetNeighbors(_tricky, "Plant/Motor1", crossHierarchyOnly: true);
-        Assert.Equal(2, Answer.Data(tricky).GetProperty("total").GetInt32());
-        Assert.Contains("other hierarchy: Groups", Answer.Text(tricky));
+        Assert.Equal(3, Answer.Data(tricky).GetProperty("total").GetInt32());
+        Assert.Contains("crosses from Plant to Groups", Answer.Text(tricky));
     }
 
     [Fact]

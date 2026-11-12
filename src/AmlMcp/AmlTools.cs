@@ -9,7 +9,8 @@ using static AmlMcp.AmlModel;
 namespace AmlMcp;
 
 /// <summary>
-/// Read-only MCP tools over AutomationML (CAEX 3.0 and 2.15) documents. Every
+/// MCP tools over AutomationML (CAEX 3.0 and 2.15) documents. Ten of them read;
+/// write_aml_document creates a document, and only where --write allows it. Every
 /// answer names element IDs and paths so a client can verify each statement in
 /// the model itself.
 /// </summary>
@@ -17,7 +18,7 @@ namespace AmlMcp;
 public static class AmlTools
 {
     private const string DocumentParameter =
-        "Optional path of an .aml file. Omit to use the most recently opened document.";
+        "Optional path of an .aml or .amlx file. Omit to use the document named or opened last.";
 
     private static CallToolResult Answer(string text, object? data) => new()
     {
@@ -25,39 +26,63 @@ public static class AmlTools
         StructuredContent = data is null ? null : System.Text.Json.JsonSerializer.SerializeToElement(data, Json.Options),
     };
 
+    /// <summary>
+    /// A refusal is an answer, not a crash. Left to escape, it reaches the client all the
+    /// same, but the server logs it with a stack trace, and a user reading the log of their
+    /// assistant sees "threw an unhandled exception" where the model only asked for an
+    /// element that is not there. Anything else is left alone: that one is a defect.
+    /// </summary>
+    private static CallToolResult Guard(Func<CallToolResult> answer)
+    {
+        try
+        {
+            return answer();
+        }
+        catch (McpException ex)
+        {
+            return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = ex.Message }] };
+        }
+    }
+
     [McpServerTool(Name = "open_aml_document", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Opens an AutomationML document (.aml with CAEX 3.0 or 2.15, or an .amlx container) and returns an overview: " +
                  "for containers the root document and all packaged parts with their roles, external library references " +
                  "and whether they resolve, class libraries, instance hierarchies with element counts by class, and " +
                  "how the hierarchies are connected (InternalLinks, references and mirror objects across hierarchies). " +
                  "Call this first. The document stays open for the other tools and is reloaded automatically when the file changes. " +
-                 "Omit the path to read the document the user currently has open in their AutomationML editor.")]
+                 "Omit the path to read the document the user currently has open in their AutomationML editor. " +
+                 "Run check_references for the details behind any warning in the overview.")]
     public static CallToolResult OpenAmlDocument(
 
         DocumentStore store,
-        [Description("Absolute or relative path to the .aml file. Omit it to use the document open in the editor.")] string? path = null)
+        [Description("Path to the .aml or .amlx file. Prefer an absolute one: a relative path is resolved against the working directory of the server process, which the client decides. Omit it to use the document open in the editor.")] string? path = null)
     {
-        // One model for both halves; the store may have moved on under a concurrent call.
-        var m = string.IsNullOrWhiteSpace(path) ? store.Get(null) : store.Open(path);
-        return Answer(OpenDocumentText(m), Structured.Document(m));
+        return Guard(() =>
+        {
+            // One model for both halves; the store may have moved on under a concurrent call.
+            var m = string.IsNullOrWhiteSpace(path) ? store.Get(null) : store.Open(path);
+            return Answer(OpenDocumentText(m), Structured.Document(m));
+        });
     }
 
     [McpServerTool(Name = "get_tree", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Shows the containment tree below an instance hierarchy or element, with class, ID, mirror objects and a " +
-                 "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy. " +
-                 "AutomationML, CAEX, InstanceHierarchy, InternalElement, structure, children.")]
+                 "marker for elements that are connected to other hierarchies. Use it to orient yourself in a hierarchy.")]
     public static CallToolResult GetTree(
         DocumentStore store,
         [Description("Hierarchy name, element ID, path (Hierarchy/Parent/Child) or unique element name. Omit for all hierarchies.")] string? element = null,
         [Description("How many levels to show (1 to 6).")] int depth = 3,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        var nodes = new List<TreeNodeInfo>();
-        var clamped = Math.Clamp(depth, 1, 6);
-        var truncated = false;
-        var text = TreeText(m, element, clamped, nodes, out truncated);
-        return Answer(text, new TreeInfo(string.IsNullOrWhiteSpace(element) ? null : element.Trim(), clamped, truncated, nodes));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            var nodes = new List<TreeNodeInfo>();
+            var clamped = Math.Clamp(depth, 1, 6);
+            var truncated = false;
+            var text = TreeText(m, element, clamped, nodes, out truncated);
+            return Answer(text, new TreeInfo(string.IsNullOrWhiteSpace(element) ? null : element.Trim(), clamped, truncated, nodes));
+        });
     }
 
     public static string TreeText(DocumentStore store, string? element = null, int depth = 3, string? document = null) =>
@@ -92,7 +117,7 @@ public static class AmlTools
               .Append(cls.Length > 0 ? $"  [{cls}]" : e.Name.LocalName == "InstanceHierarchy" ? "  [InstanceHierarchy]" : "")
               .Append(master is not null ? $"  (mirror of {PathOf(master)})" : "")
               .Append(cross > 0 ? $"  <{cross} cross-hierarchy connection(s)>" : "")
-              .AppendLine($"  id={IdOf(e)}");
+              .AppendLine(IdSuffix(e));
 
             var children = e.Elements(C + "InternalElement").ToList();
             var childNodes = new List<TreeNodeInfo>();
@@ -123,28 +148,32 @@ public static class AmlTools
     [Description("Searches internal elements by text in name, description, ID, class or role, optionally restricted " +
                  "to a class, a role or one instance hierarchy. Class and role filters follow inheritance: filtering " +
                  "for a base class also finds instances of its subclasses. Returns path, class and ID per hit. " +
-                 "AutomationML, CAEX, search, lookup, find by name, by ID, by class, by role.")]
+                 "It searches the instance hierarchies; matches inside the templates of system unit classes are " +
+                 "counted, not listed. To look up classes themselves use list_classes.")]
     public static CallToolResult FindElements(
 
         DocumentStore store,
         [Description("Text to search for (case-insensitive). May be empty when filtering by class or role only.")] string? query = null,
-        [Description("Only elements whose system unit class or one of its base classes contains this text, e.g. FPD_ProcessOperator or PT_Transition.")] string? classContains = null,
+        [Description("Only elements whose system unit class or one of its base classes contains this text, e.g. Drill or the full path of a class.")] string? classContains = null,
         [Description("Only elements with a role requirement whose role class or one of its base classes contains this text.")] string? roleContains = null,
         [Description("Only elements in this instance hierarchy.")] string? hierarchy = null,
         [Description("Maximum number of results.")] int limit = 30,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        return Answer(FindElementsText(m, query, classContains, roleContains, hierarchy, limit),
-            Structured.Search(m, query, classContains, roleContains, hierarchy, Math.Clamp(limit, 1, 200)));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            return Answer(FindElementsText(m, query, classContains, roleContains, hierarchy, limit),
+                Structured.Search(m, query, classContains, roleContains, hierarchy, Math.Clamp(limit, 1, 200)));
+        });
     }
 
     [McpServerTool(Name = "get_element", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Returns a compact card for one element: path, hierarchy, class (resolved against the libraries), roles, " +
                  "description, own attributes, attributes inherited from the class chain, interfaces, children, and all " +
                  "connections: InternalLinks, references and mirror relations in both directions, each with the partner's " +
-                 "path, hierarchy and ID. Diagram layout attributes are hidden unless requested. " +
-                 "AutomationML, CAEX, element details, attributes, ExternalInterface, InternalLink, refObj, mirror, ID lookup.")]
+                 "path, hierarchy and ID. Diagram layout attributes are hidden unless requested. An interface ID answers about " +
+                 "the element that owns it and says so. For connections more than one hop away use get_neighbors.")]
     public static CallToolResult GetElement(
 
         DocumentStore store,
@@ -152,15 +181,18 @@ public static class AmlTools
         [Description("Include diagram layout attributes (positions, bounds, waypoints).")] bool includeLayout = false,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        return Answer(ElementCard(m, element, includeLayout), Structured.Element(m, m.ResolveElement(element), includeLayout));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            return Answer(ElementCard(m, element, includeLayout), Structured.Element(m, m.ResolveElement(element), includeLayout));
+        });
     }
 
     [McpServerTool(Name = "get_neighbors", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Follows connections from an element up to a given depth: InternalLinks, references (refObj family " +
                  "and similar) and mirror relations in both directions, and optionally parent/child containment. Use " +
-                 "crossHierarchyOnly to see how e.g. a process view, a behaviour view and a plant structure are tied together. " +
-                 "AutomationML, CAEX, trace connections, linked elements, arcs, places, transitions, neighbours.")]
+                 "crossHierarchyOnly to see how two views of the same plant are tied together. Use it after get_element when " +
+                 "you need to follow connections beyond the first hop; get_element already lists the first.")]
     public static CallToolResult GetNeighbors(
         DocumentStore store,
         [Description("Element ID, path or unique name.")] string element,
@@ -169,12 +201,15 @@ public static class AmlTools
         [Description("Only report connections that end in a different instance hierarchy.")] bool crossHierarchyOnly = false,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        var found = new List<NeighborInfo>();
-        var clamped = Math.Clamp(depth, 1, 4);
-        var start = m.ResolveElement(element);
-        var text = NeighborsText(m, start, clamped, includeContainment, crossHierarchyOnly, found);
-        return Answer(text, new NeighborsInfo(Structured.Ref(m, start), clamped, found.Count, found));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            var found = new List<NeighborInfo>();
+            var clamped = Math.Clamp(depth, 1, 4);
+            var start = m.ResolveElement(element);
+            var text = NeighborsText(m, start, clamped, includeContainment, crossHierarchyOnly, found);
+            return Answer(text, new NeighborsInfo(Structured.Ref(m, start), clamped, found.Count, found));
+        });
     }
 
     public static string NeighborsText(DocumentStore store, string element, int depth = 1,
@@ -188,8 +223,14 @@ public static class AmlTools
     public static string NeighborsText(AmlModel m, XElement start, int depth, bool includeContainment,
         bool crossHierarchyOnly, List<NeighborInfo>? collect)
     {
-        var sb = new StringBuilder($"Neighbours of {PathOf(start)} (id={IdOf(start)}), depth {depth}:\n");
-        var seen = new HashSet<XElement> { start };
+        var startId = IdOf(start) is { Length: > 0 } id ? $" (id={id})" : "";
+        var sb = new StringBuilder($"Neighbours of {PathOf(start)}{startId}, depth {depth}:\n");
+        // The hop an element was first reached at. Edges are reported even when the partner
+        // was reached before at the same hop, because two elements can be connected twice
+        // and in both directions. An edge that leads back to an earlier hop is the way the
+        // walk came, and saying so again only repeats what the hop before said.
+        var firstSeen = new Dictionary<XElement, int> { [start] = 0 };
+        var walked = new HashSet<(XElement From, XElement To, string Kind, string Detail)>();
         var frontier = new List<XElement> { start };
         var reported = 0;
 
@@ -200,8 +241,9 @@ public static class AmlTools
             {
                 foreach (var edge in m.EdgesOf(node, includeContainment))
                 {
-                    if (!seen.Add(edge.Target)) continue;
-                    next.Add(edge.Target);
+                    if (!walked.Add((node, edge.Target, edge.Kind, edge.Detail))) continue;
+                    if (firstSeen.TryGetValue(edge.Target, out var reachedAt) && reachedAt < level) continue;
+                    if (firstSeen.TryAdd(edge.Target, level)) next.Add(edge.Target);
                     var cross = HierarchyNameOf(edge.Target) != HierarchyNameOf(node);
                     if (crossHierarchyOnly && !cross) continue;
                     collect?.Add(new NeighborInfo(level, edge.Kind, edge.Detail,
@@ -222,8 +264,9 @@ public static class AmlTools
 
     [McpServerTool(Name = "find_path", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Finds the shortest chain of connections between two elements (links, references, mirror relations and, " +
-                 "unless disabled, containment). Answers questions like 'how is this Petri net transition related to that process operator'. " +
-                 "AutomationML, CAEX, trace, route, shortest path, how are two elements connected.")]
+                 "unless disabled, containment). Answers how two elements are related. A containment step says only that one " +
+                 "element sits inside another, which is not a connection between them: disable containment to see " +
+                 "whether they are connected at all.")]
     public static CallToolResult FindPath(
 
         DocumentStore store,
@@ -233,46 +276,54 @@ public static class AmlTools
         [Description("Maximum number of steps (1 to 20).")] int maxSteps = 12,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        return Answer(FindPathText(m, from, to, includeContainment, maxSteps),
-            Structured.PathBetween(m, m.ResolveElement(from), m.ResolveElement(to), includeContainment, Math.Clamp(maxSteps, 1, 20)));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            return Answer(FindPathText(m, from, to, includeContainment, maxSteps),
+                Structured.PathBetween(m, m.ResolveElement(from), m.ResolveElement(to), includeContainment, Math.Clamp(maxSteps, 1, 20)));
+        });
     }
 
     [McpServerTool(Name = "get_class", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Looks up a class from the role, system unit, interface or attribute type libraries (embedded or " +
                  "referenced externally): description, inheritance chain, own and inherited attributes with defaults, " +
                  "interfaces, supported roles, subclasses, and how many elements in the document use it. Accepts a full " +
-                 "path or a class name; a name shared by a role and a system unit class returns both. " +
-                 "AutomationML, CAEX, SystemUnitClass, RoleClass, InterfaceClass, AttributeType, library, inheritance.")]
+                 "path or a class name; a name shared by a role and a system unit class returns both.")]
     public static CallToolResult GetClass(
 
         DocumentStore store,
-        [Description("Class path (e.g. VDI_FPD_DomainLibrary@VDI_FPD_SystemUnitClassLib/FPD_ProcessOperator) or just the class name.")] string classPath,
+        [Description("Class path (Library/Class, or Alias@Library/Class for a class from an external library) or just the class name.")] string classPath,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        var matches = Structured.Classes(m, classPath);
-        // Wrapped in an object: MCP structured content is not an array.
-        return Answer(ClassCard(m, classPath),
-            new ClassMatchesInfo(matches.Count, matches.Select(c => Structured.Class(m, c)).ToList()));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            var matches = Structured.Classes(m, classPath);
+            // Wrapped in an object: MCP structured content is not an array.
+            return Answer(ClassCard(m, classPath),
+                new ClassMatchesInfo(matches.Count, matches.Select(c => Structured.Class(m, c)).ToList()));
+        });
     }
 
     [McpServerTool(Name = "list_classes", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Lists classes from all libraries available to the document, optionally filtered by library, kind " +
-                 "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text. AutomationML, CAEX, libraries, classes, browse.")]
+                 "(RoleClass, SystemUnitClass, InterfaceClass, AttributeType) or text.")]
     public static CallToolResult ListClasses(
         DocumentStore store,
         [Description("Only classes whose library name contains this text.")] string? library = null,
-        [Description("RoleClass, SystemUnitClass, InterfaceClass or AttributeType.")] string? kind = null,
+        [Description("RoleClass, SystemUnitClass, InterfaceClass or AttributeType. Short forms such as role work too.")] string? kind = null,
         [Description("Only classes whose path or description contains this text.")] string? query = null,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        var list = MatchingClasses(m, library, kind, query);
-        return Answer(ListClassesText(m, library, kind, query),
-            new ClassListInfo(list.Count, Math.Min(list.Count, 150), list.Take(150)
-                .Select(c => new ClassSummaryInfo(c.Key, c.Kind, c.Library, c.External, DescriptionOf(c.Element)))
-                .ToList()));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            var list = MatchingClasses(m, library, kind, query);
+            return Answer(ListClassesText(m, library, kind, query),
+                new ClassListInfo(list.Count, Math.Min(list.Count, 150), list.Take(150)
+                    .Select(c => new ClassSummaryInfo(c.Key, c.Kind, c.Library, c.External, DescriptionOf(c.Element)))
+                    .ToList()));
+        });
     }
 
     public static string ListClassesText(DocumentStore store, string? library = null, string? kind = null,
@@ -288,12 +339,23 @@ public static class AmlTools
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The four kinds CAEX has, however they are written. "No matching classes" for a kind
+    /// that does not exist would read as a statement about the document.
+    /// </summary>
+    private static string KindOf(string kind) =>
+        AmlModel.TryClassKind(kind, out var wanted)
+            ? wanted
+            : throw new McpException(
+                $"Unknown kind '{kind}'. Use RoleClass, SystemUnitClass, InterfaceClass or AttributeType.");
+
     private static List<ClassInfo> MatchingClasses(AmlModel m, string? library, string? kind, string? query)
     {
+        var wanted = string.IsNullOrWhiteSpace(kind) ? null : KindOf(kind.Trim());
         return m.Classes.Values
             .GroupBy(c => c.PlainPath).Select(g => g.OrderBy(c => c.External).First())
             .Where(c => string.IsNullOrWhiteSpace(library) || c.Library.Contains(library, StringComparison.OrdinalIgnoreCase))
-            .Where(c => string.IsNullOrWhiteSpace(kind) || c.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase))
+            .Where(c => wanted is null || c.Kind.Equals(wanted, StringComparison.Ordinal))
             .Where(c => string.IsNullOrWhiteSpace(query)
                         || c.Key.Contains(query, StringComparison.OrdinalIgnoreCase)
                         || (DescriptionOf(c.Element)?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
@@ -313,35 +375,38 @@ public static class AmlTools
         [Description("Element ID, path (Hierarchy/Parent/Child) or unique name.")] string element,
         [Description(DocumentParameter)] string? document = null)
     {
-        if (store.Options.SelectFile is not { } file)
-            throw new McpException("No editor is attached. Open the AmlMcp panel in the AutomationML Editor and press Register, then restart the assistant.");
-
-        var m = store.Get(document);
-        var found = m.ResolveElement(element);
-        var id = IdOf(found);
-        if (id.Length == 0)
-            throw new McpException($"'{PathOf(found)}' has no ID, so the editor cannot select it.");
-
-        ShowRequest request;
-        try
+        return Guard(() =>
         {
-            request = EditorHandshake.Write(file, m.FilePath, id, PathOf(found));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            throw new McpException($"Could not tell the editor which element to show: {ex.Message}");
-        }
+            if (store.Options.SelectFile is not { } file)
+                throw new McpException("No editor is attached. Open the AmlMcp panel in the AutomationML Editor and press Register, then restart the assistant.");
 
-        // Only the editor's answer proves that anything happened. Writing a file does not.
-        var ack = EditorHandshake.WaitForAck(file, request.Nonce)
-            ?? throw new McpException("No AutomationML Editor answered. Is it running with the AmlMcp panel open? " +
-                                      $"Nothing was shown; the element is {PathOf(found)}, id {id}.");
+            var m = store.Get(document);
+            var found = m.ResolveElement(element);
+            var id = IdOf(found);
+            if (id.Length == 0)
+                throw new McpException($"'{PathOf(found)}' has no ID, so the editor cannot select it.");
 
-        if (ack.Status != "selected")
-            throw new McpException($"The editor did not show it: {ack.Detail ?? ack.Status}.");
+            ShowRequest request;
+            try
+            {
+                request = EditorHandshake.Write(file, m.FilePath, id, PathOf(found));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new McpException($"Could not tell the editor which element to show: {ex.Message}");
+            }
 
-        var text = $"Showing {PathOf(found)} in the editor, confirmed.\n  id: {id}\n  hierarchy: {HierarchyNameOf(found)}";
-        return Answer(text, Structured.Ref(m, found));
+            // Only the editor's answer proves that anything happened. Writing a file does not.
+            var ack = EditorHandshake.WaitForAck(file, request.Nonce)
+                ?? throw new McpException("No AutomationML Editor answered. Is it running with the AmlMcp panel open? " +
+                                          $"Nothing was shown; the element is {PathOf(found)}, id {id}.");
+
+            if (ack.Status != "selected")
+                throw new McpException($"The editor did not show it: {ack.Detail ?? ack.Status}.");
+
+            var text = $"Showing {PathOf(found)} in the editor, confirmed.\n  id: {id}\n  hierarchy: {HierarchyNameOf(found)}";
+            return Answer(text, Structured.Ref(m, found));
+        });
     }
 
     [McpServerTool(Name = "check_references", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
@@ -354,8 +419,55 @@ public static class AmlTools
         DocumentStore store,
         [Description(DocumentParameter)] string? document = null)
     {
-        var m = store.Get(document);
-        return Answer(CheckText(m), Structured.Check(m));
+        return Guard(() =>
+        {
+            var m = store.Get(document);
+            return Answer(CheckText(m), Structured.Check(m));
+        });
+    }
+
+    [McpServerTool(Name = "write_aml_document", ReadOnly = false, Idempotent = true, Destructive = true, OpenWorld = false)]
+    [Description("Creates a new AutomationML document from a description. You do not write CAEX: you say which class " +
+                 "libraries, instance hierarchies, elements, attributes, interfaces and links the document should have, " +
+                 "and the server renders the XML, generates every ID from the element's path, writes link partners in the " +
+                 "form that resolves, and adds the classes you use when you name no library. Every document is validated " +
+                 "against the CAEX 3.0 schema before it lands; a description that would not resolve or would not " +
+                 "validate is refused and nothing is written. Call it with preview first: that renders and " +
+                 "checks without touching the disk and gives you the same overview and reference check you would get " +
+                 "after the write, so the user can judge it. Writing needs a directory the server was started with " +
+                 "(--write); an existing file is kept unless you ask for it to be replaced.")]
+    public static CallToolResult WriteAmlDocument(
+
+        DocumentStore store,
+        [Description("Path of the .aml file to write. Prefer an absolute one; it has to lie inside a directory the server may write.")] string path,
+        [Description("The document to write: file name, schema version, description, external libraries, class libraries and instance hierarchies.")] DocumentSpec document,
+        [Description("Render and check without writing anything, and report what would be written.")] bool preview = false,
+        [Description("Replace the file if it already exists.")] bool overwrite = false)
+    {
+        return Guard(() =>
+        {
+            // One outcome feeds both halves, as everywhere else in this server.
+            var outcome = DocumentWriter.Write(store, path, document, preview, overwrite);
+            return Answer(WriteText(outcome), new WriteResultInfo(
+                outcome.WrittenTo, preview, Structured.Document(outcome.Model), outcome.Check));
+        });
+    }
+
+    /// <summary>
+    /// What a write says: where it went, then the overview and the check of the document, in
+    /// the words the read side uses for a document that was already there.
+    /// </summary>
+    public static string WriteText(WriteOutcome outcome)
+    {
+        var sb = new StringBuilder(outcome.WrittenTo is null
+            ? "Preview: nothing was written. This is the document that would be written."
+            : $"Written: {outcome.WrittenTo}");
+        sb.AppendLine();
+        if (outcome.Note is { } note) sb.AppendLine(note);
+        sb.AppendLine();
+        sb.AppendLine(OpenDocumentText(outcome.Model));
+        sb.Append(CheckText(outcome.Model));
+        return sb.ToString();
     }
 
 
@@ -406,19 +518,27 @@ public static class AmlTools
         foreach (var ih in m.Hierarchies)
         {
             var elements = ih.Descendants(C + "InternalElement").ToList();
-            var mirrors = elements.Count(e => MirrorReferenceOf(e) is not null);
-            var byClass = elements.GroupBy(e => ShortClass(m.ClassOf(e)) is { Length: > 0 } s ? s : "(no class)")
-                .OrderByDescending(g => g.Count()).Take(6)
-                .Select(g => $"{g.Key} {g.Count()}");
+            var mirrors = elements.Count(e => m.MirrorReferenceOf(e) is not null);
+            var groups = elements.GroupBy(e => ShortClass(m.ClassOf(e)) is { Length: > 0 } s ? s : "(no class)")
+                .OrderByDescending(g => g.Count()).ToList();
+            var byClass = groups.Take(6).Select(g => $"{g.Key} {g.Count()}").ToList();
+            // The list is cut to keep the overview readable; say so rather than let a
+            // reader take the six for all of them.
+            if (groups.Count > byClass.Count)
+                byClass.Add($"... {groups.Count - byClass.Count} more class(es), ask list_classes");
             sb.AppendLine($"  {NameOf(ih)}: {elements.Count} elements{(mirrors > 0 ? $", {mirrors} of them mirrors" : "")}  [{string.Join(", ", byClass)}]");
             if (DescriptionOf(ih) is { } d) sb.AppendLine($"    {Shorten(d, 160)}");
         }
 
         var crossLinks = m.Links.Count(l => l.CrossHierarchy);
         var unresolvedLinks = m.Links.Count(l => !l.Resolved);
+        // Class libraries carry links of their own, inside the templates. Counting those
+        // with the links of the plant would overstate how connected the plant is.
+        var inTemplates = m.Links.Count(l => IsInClassLibrary(l.Link));
         var resolvedRefs = m.Refs.Where(r => r.Resolved).ToList();
         var crossRefs = resolvedRefs.Count(r => HierarchyNameOf(r.Source) != HierarchyNameOf(r.Target));
-        sb.AppendLine($"\nInternalLinks: {m.Links.Count} total, {crossLinks} across hierarchies, {unresolvedLinks} unresolved");
+        sb.AppendLine($"\nInternalLinks: {m.Links.Count} total, {crossLinks} across hierarchies, {unresolvedLinks} unresolved"
+                      + (inTemplates > 0 ? $"  ({inTemplates} of them inside class library templates)" : ""));
         sb.AppendLine($"References (refObj family and similar): {resolvedRefs.Count} resolved ({crossRefs} across hierarchies), {m.Refs.Count - resolvedRefs.Count} dangling");
 
         var crossPairs = m.Links.Where(l => l.CrossHierarchy).Select(l => (l.HierarchyA!, l.HierarchyB!, "link"))
@@ -471,11 +591,18 @@ public static class AmlTools
                    || roles.Any(r => r.Contains(q, StringComparison.OrdinalIgnoreCase));
         }).ToList();
 
-        if (hits.Count == 0) return "No matching elements.";
-        var sb = new StringBuilder($"{hits.Count} match(es){(hits.Count > limit ? $", showing {limit}" : "")}:\n");
-        foreach (var e in hits.Take(limit))
-            sb.AppendLine($"  {PathOf(e)}  [{ShortClass(m.ClassOf(e))}]{(MirrorReferenceOf(e) is not null ? "  (mirror)" : "")}  id={IdOf(e)}");
-        return sb.ToString();
+        // A class template is not an element of the plant. Searching the libraries along
+        // with the hierarchies buried 694 real elements under 9086 templates.
+        var inHierarchies = hits.Where(e => !IsInClassLibrary(e)).ToList();
+        var templates = hits.Count - inHierarchies.Count;
+        var alsoInLibraries = templates == 0 ? "" :
+            $"{templates} further match(es) are templates inside class libraries; ask list_classes or get_class for those.\n";
+
+        if (inHierarchies.Count == 0) return "No matching elements.\n" + alsoInLibraries;
+        var sb = new StringBuilder($"{inHierarchies.Count} match(es){(inHierarchies.Count > limit ? $", showing {limit}" : "")}:\n");
+        foreach (var e in inHierarchies.Take(limit))
+            sb.AppendLine($"  {PathOf(e)}  [{ShortClass(m.ClassOf(e))}]{(m.MirrorReferenceOf(e) is not null ? "  (mirror)" : "")}  id={IdOf(e)}");
+        return sb + alsoInLibraries;
     }
 
     // ------------------------------------------------------------------ element
@@ -488,12 +615,37 @@ public static class AmlTools
         var e = m.ResolveElement(element);
         var sb = new StringBuilder();
 
+        // An interface ID resolves to its owner. Say so, or the answer looks like the
+        // wrong object, and show what the interface itself carries.
+        var asked = m.ById.GetValueOrDefault(NormId(element.Trim()));
+        var askedInterface = asked?.Name.LocalName == "ExternalInterface" ? asked : null;
+
         sb.AppendLine($"{NameOf(e)}  ({e.Name.LocalName})");
         sb.AppendLine($"  id: {IdOf(e)}");
-        sb.AppendLine($"  path: {PathOf(e)}");
-        sb.AppendLine($"  hierarchy: {HierarchyNameOf(e)}");
+        sb.AppendLine($"  path: {DisplayPathOf(e)}");
+        sb.AppendLine(IsInClassLibrary(e)
+            ? "  this is a template inside a class library, not an element of a hierarchy"
+            : $"  hierarchy: {HierarchyNameOf(e)}");
+        if (m.ElementsByDuplicateId.GetValueOrDefault(NormId(IdOf(e))) is { Count: > 1 } sameId)
+            sb.AppendLine($"  note: {sameId.Count} elements carry this ID. This card is about {DisplayPathOf(sameId[0])}; " +
+                          $"the others are {string.Join(", ", sameId.Skip(1).Select(DisplayPathOf))} and cannot be addressed by ID");
 
-        if (MirrorReferenceOf(e) is { } masterId)
+        if (askedInterface is not null)
+        {
+            sb.AppendLine($"  the ID names the interface {NameOf(askedInterface)} [{InterfaceClassLabel(m, askedInterface)}] " +
+                          "of this element; this card is about the element that owns it");
+            var own = new List<string>();
+            var hiddenOnInterface = 0;
+            CollectAttributes(m, askedInterface, "", includeLayout, own, ref hiddenOnInterface);
+            if (own.Count > 0)
+            {
+                sb.AppendLine($"  attributes of the interface {NameOf(askedInterface)}:");
+                foreach (var line in own.Take(30)) sb.AppendLine("    " + line);
+                if (own.Count > 30) sb.AppendLine($"    ... {own.Count - 30} more");
+            }
+        }
+
+        if (m.MirrorReferenceOf(e) is { } masterId)
         {
             var master = m.MirrorMasterOf(e);
             sb.AppendLine(master is null
@@ -542,16 +694,21 @@ public static class AmlTools
         }
 
         var connections = m.EdgesOf(e, includeContainment: false).ToList();
+        // A link whose two sides belong to this element has no partner to list, but it
+        // is in the document and used to disappear entirely.
+        var selfLinks = m.Links.Where(l => l.OwnerA is not null && l.OwnerA == l.OwnerB && l.OwnerA == e).ToList();
         if (connections.Count > 0)
         {
             sb.AppendLine($"  connections ({connections.Count}):");
             foreach (var c in connections.Take(60)) sb.AppendLine("    " + FormatEdge(m, e, c));
             if (connections.Count > 60) sb.AppendLine($"    ... {connections.Count - 60} more");
         }
-        else
+        else if (selfLinks.Count == 0)
         {
             sb.AppendLine("  connections: none");
         }
+        foreach (var l in selfLinks)
+            sb.AppendLine($"  link {l.Name} runs between two interfaces of this element: {NameOf(l.InterfaceA)} -> {NameOf(l.InterfaceB)}");
 
         foreach (var r in m.Refs.Where(r => !r.Resolved && AnchorOf(r.Source) == e))
             sb.AppendLine($"  dangling reference: {r.AttributePath} = {r.Value}");
@@ -598,9 +755,9 @@ public static class AmlTools
         chain.Reverse();
 
         var sb = new StringBuilder($"Path with {chain.Count} step(s):\n");
-        sb.AppendLine($"  {PathOf(source)}  [{HierarchyNameOf(source)}]");
+        sb.AppendLine($"  {PathOf(source)}  [{HierarchyNameOf(source)}]{IdSuffix(source)}");
         foreach (var (_, edge) in chain)
-            sb.AppendLine($"    {EdgeVerb(edge)}  {PathOf(edge.Target)}  [{HierarchyNameOf(edge.Target)}]  id={IdOf(edge.Target)}");
+            sb.AppendLine($"    {EdgeVerb(edge)}  {PathOf(edge.Target)}  [{HierarchyNameOf(edge.Target)}]{IdSuffix(edge.Target)}");
         return sb.ToString();
     }
 
@@ -642,12 +799,9 @@ public static class AmlTools
         var problems = 0;
 
         // Mirror objects carry an ID instead of a class path and are checked separately.
-        var unresolvedClasses = m.Root.Descendants()
-            .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
-            .Where(x => !string.IsNullOrWhiteSpace(x.Value))
-            .Where(x => !IsMirrorSlot(x.Element, x.Attribute))
+        var unresolvedClasses = ClassReferences(m)
             .Where(x => m.ResolveClass(x.Value, x.Element) is null)
-            .GroupBy(x => x.Value!).ToList();
+            .GroupBy(x => x.Value).ToList();
 
         // Class paths that fail only because their library file is missing are
         // reported under that library, not as separate problems.
@@ -692,6 +846,18 @@ public static class AmlTools
             sb.AppendLine($"  unresolved class path: {g.Key}  (used {g.Count()}x, e.g. by {DisplayPathOf(g.First().Element)})");
         }
 
+        // An alias that does not carry the class is a modelling error, even where the
+        // plain path happens to match another library of the same name.
+        foreach (var g in ClassReferences(m).GroupBy(x => x.Value))
+        {
+            if (m.ResolvedPastItsAlias(g.Key) is not { } match) continue;
+            problems++;
+            var alias = SplitClassPath(g.Key).Alias!;
+            sb.AppendLine($"  alias does not carry the class: {g.Key}  (used {g.Count()}x, e.g. by " +
+                          $"{DisplayPathOf(g.First().Element)}); the library behind {alias} has no {match.PlainPath}, " +
+                          $"so {match.Key} from {match.Library} was read instead");
+        }
+
         foreach (var dm in m.DanglingMirrors)
         {
             problems++;
@@ -716,7 +882,10 @@ public static class AmlTools
         foreach (var id in m.DuplicateIds.Distinct())
         {
             problems++;
-            sb.AppendLine($"  duplicate ID: {id}");
+            var all = m.ElementsByDuplicateId.GetValueOrDefault(NormId(id)) ?? new List<XElement>();
+            sb.AppendLine($"  duplicate ID: {id}" + (all.Count == 0
+                ? ""
+                : $"  ({string.Join(", ", all.Select(DisplayPathOf))}; answers about this ID are about {DisplayPathOf(all[0])})"));
         }
 
         foreach (var id in m.CaseVariantIds.Distinct())
@@ -726,7 +895,7 @@ public static class AmlTools
             .SelectMany(l => new[] { l.InterfaceA!, l.InterfaceB! })
             .GroupBy(i => i).Where(g => g.Count() > 1).ToList();
         foreach (var g in shared)
-            sb.AppendLine($"  note: interface {PathOf(g.Key)} is used by {g.Count()} links");
+            sb.AppendLine($"  note: interface {DisplayPathOf(g.Key)} is used by {g.Count()} links");
 
         sb.AppendLine(problems == 0 ? "  no problems found" : $"  {problems} problem(s)");
         sb.AppendLine($"  checked: {m.Classes.Count} library classes, {m.Links.Count} links, {m.Refs.Count} references, {m.ById.Count} IDs");
@@ -735,8 +904,18 @@ public static class AmlTools
 
     // ------------------------------------------------------------------ formatting helpers
 
+    /// <summary>Every class reference of the document, without the mirror slots.</summary>
+    private static IEnumerable<(XElement Element, string Attribute, string Value)> ClassReferences(AmlModel m) =>
+        m.Root.Descendants()
+            .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Value))
+            .Where(x => !IsMirrorSlot(x.Element, x.Attribute))
+            .Select(x => (x.Element, x.Attribute, Value: x.Value!));
+
+    /// <summary>The slot that holds either a mirror's master ID or a class name without its
+    /// library. Both are checked separately from the class paths.</summary>
     private static bool IsMirrorSlot(XElement element, string attribute) =>
-        MirrorReferenceOf(element) is not null &&
+        BaseReferenceWithoutPath(element) is not null &&
         ((attribute == "RefBaseSystemUnitPath" && element.Name.LocalName == "InternalElement") ||
          (attribute == "RefBaseClassPath" && element.Name.LocalName == "ExternalInterface"));
 
@@ -764,6 +943,7 @@ public static class AmlTools
         {
             sb.AppendLine("  attributes:");
             foreach (var line in attributeLines.Take(50)) sb.AppendLine("    " + line);
+            if (attributeLines.Count > 50) sb.AppendLine($"    ... {attributeLines.Count - 50} more");
         }
         if (hidden > 0) sb.AppendLine($"  ({hidden} layout attribute group(s) not shown)");
         AppendInherited(sb, m, cls, includeLayout: false);
@@ -776,11 +956,13 @@ public static class AmlTools
         var subclasses = m.Classes.Values
             .Where(c => m.ResolveClass((string?)c.Element.Attribute("RefBaseClassPath"))?.Element == cls)
             .Select(c => c.PlainPath).Distinct().ToList();
-        if (subclasses.Count > 0) sb.AppendLine($"  subclasses: {string.Join(", ", subclasses.Take(20))}");
+        if (subclasses.Count > 0)
+            sb.AppendLine($"  subclasses: {string.Join(", ", subclasses.Take(20))}"
+                          + (subclasses.Count > 20 ? $", ... {subclasses.Count - 20} more" : ""));
 
-        var uses = m.Root.Descendants()
-            .Count(e => ClassReferenceAttributes.Any(a => m.ResolveClass((string?)e.Attribute(a))?.Element == cls));
-        sb.AppendLine($"  used by {uses} element(s) in this document");
+        var (byElements, byClasses) = m.UsersOf(cls);
+        sb.AppendLine($"  used by {byElements} element(s) in this document"
+                      + (byClasses > 0 ? $", and by {byClasses} class(es) in the libraries" : ""));
         sb.AppendLine();
     }
 
@@ -832,17 +1014,27 @@ public static class AmlTools
                                                   || c.PlainPath.Contains(text, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>CAEX 2.15 leaves an InstanceHierarchy without an ID; an empty "id=" says nothing.</summary>
+    private static string IdSuffix(XElement e) => IdOf(e) is { Length: > 0 } id ? $"  id={id}" : "";
+
     private static string InterfaceClassLabel(AmlModel m, XElement @interface)
     {
         var master = m.MirrorMasterOf(@interface);
         if (master is not null) return $"mirror of {PathOf(master)}";
-        return ShortClass((string?)@interface.Attribute("RefBaseClassPath"));
+        var label = ShortClass((string?)@interface.Attribute("RefBaseClassPath"));
+        if (label.Length > 0) return label;
+        // An interface class belongs in RefBaseClassPath. Some tools write the other one.
+        return (string?)@interface.Attribute("RefBaseSystemUnitPath") is { Length: > 0 } wrong
+            ? $"no interface class; RefBaseSystemUnitPath={wrong} is the wrong attribute for an interface"
+            : "no interface class";
     }
 
     private static string FormatEdge(AmlModel m, XElement from, Edge edge)
     {
-        var otherHierarchy = HierarchyNameOf(edge.Target);
-        var crossMarker = otherHierarchy != HierarchyNameOf(from) ? $"  [other hierarchy: {otherHierarchy}]" : "";
+        var there = HierarchyNameOf(edge.Target);
+        var here = HierarchyNameOf(from);
+        // Named in full, because at the second hop "from" is no longer the element asked about.
+        var crossMarker = there != here ? $"  [crosses from {here} to {there}]" : "";
         return $"{EdgeVerb(edge)}  {PathOf(edge.Target)}  [{ShortClass(m.ClassOf(edge.Target))}]  id={IdOf(edge.Target)}{crossMarker}";
     }
 

@@ -734,9 +734,9 @@ public sealed class OpenWithoutAPathTests : IDisposable
     {
         var store = new DocumentStore();
 
-        var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
+        var message = Answer.Error(AmlTools.OpenAmlDocument(store));
 
-        Assert.Contains("call open_aml_document with the path", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("call open_aml_document with the path", message, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -758,11 +758,11 @@ public sealed class FollowedDocumentOutsideTheRootTests : IDisposable
         var pointer = _inside.Write("open-document.txt", elsewhere);
         var store = new DocumentStore(ServerOptions.Parse(new[] { "--root", _inside.Dir, "--follow", pointer }));
 
-        var ex = Assert.Throws<McpException>(() => AmlTools.OpenAmlDocument(store));
+        var message = Answer.Error(AmlTools.OpenAmlDocument(store));
 
-        Assert.Contains("the editor has", ex.Message);
-        Assert.Contains(elsewhere, ex.Message);
-        Assert.Contains("outside the directories this server may read", ex.Message);
+        Assert.Contains("the editor has", message);
+        Assert.Contains(elsewhere, message);
+        Assert.Contains("outside the directories this server may read", message);
     }
 }
 
@@ -781,17 +781,19 @@ public sealed class ToolAnnotationTests
             .Where(a => a is not null)
             .ToList();
 
-        Assert.Equal(10, tools.Count);
+        Assert.Equal(11, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.True(tool!.Idempotent);
-            Assert.False(tool.Destructive);
             Assert.False(tool.OpenWorld);
         });
 
         // Nine read. show_in_editor writes a file for the editor, and says so.
+        // write_aml_document writes a document, and is the only one that can replace a file.
         Assert.Equal(9, tools.Count(t => t!.ReadOnly));
-        Assert.Equal("show_in_editor", Assert.Single(tools, t => !t!.ReadOnly)!.Name);
+        Assert.Equal(new[] { "show_in_editor", "write_aml_document" },
+            tools.Where(t => !t!.ReadOnly).Select(t => t!.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal("write_aml_document", Assert.Single(tools, t => t!.Destructive)!.Name);
     }
 }
 
@@ -804,7 +806,12 @@ public sealed class ShowInEditorTests : IDisposable
     private readonly Workspace _ws = new();
     private readonly TimeSpan _patience = EditorHandshake.Patience;
 
-    public ShowInEditorTests() => EditorHandshake.Patience = TimeSpan.FromMilliseconds(600);
+    /// <summary>
+    /// Shortens the handshake for the tests that expect no answer, so they do not sit out the
+    /// whole deadline. The tests that do answer keep the real one: a short deadline made them
+    /// fail whenever the machine was busy, which is a fault of the test, not of the handshake.
+    /// </summary>
+    private static void NoAnswerExpected() => EditorHandshake.Patience = TimeSpan.FromMilliseconds(300);
 
     public void Dispose()
     {
@@ -830,29 +837,39 @@ public sealed class ShowInEditorTests : IDisposable
     /// Stands in for the editor panel: answers a request once. Like the panel it tells requests
     /// apart by their nonce, so an old file is not answered again.
     /// </summary>
-    private Task PlayEditor(string status, string? detail = null, Action<ShowRequest>? inspect = null) => Task.Run(() =>
+    private Task PlayEditor(string status, string? detail = null, Action<ShowRequest>? inspect = null)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (DateTime.UtcNow < deadline)
+        // Its own thread, and the caller waits until it is watching. On the thread pool it could
+        // start after the handshake had already given up, which looked like a server that never
+        // got an answer.
+        using var watching = new ManualResetEventSlim(false);
+        var editor = Task.Factory.StartNew(() =>
         {
-            try
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            watching.Set();
+            while (DateTime.UtcNow < deadline)
             {
-                if (File.Exists(SelectFile))
+                try
                 {
-                    var request = System.Text.Json.JsonSerializer.Deserialize<ShowRequest>(File.ReadAllText(SelectFile));
-                    if (request is not null && _answered.Add(request.Nonce))
+                    if (File.Exists(SelectFile))
                     {
-                        inspect?.Invoke(request);
-                        File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
-                            System.Text.Json.JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
-                        return;
+                        var request = System.Text.Json.JsonSerializer.Deserialize<ShowRequest>(File.ReadAllText(SelectFile));
+                        if (request is not null && _answered.Add(request.Nonce))
+                        {
+                            inspect?.Invoke(request);
+                            File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
+                                System.Text.Json.JsonSerializer.Serialize(new ShowAck(request.Nonce, status, detail)));
+                            return;
+                        }
                     }
                 }
+                catch (IOException) { /* the server may still be writing */ }
+                Thread.Sleep(10);
             }
-            catch (IOException) { /* the server may still be writing */ }
-            Thread.Sleep(10);
-        }
-    });
+        }, TaskCreationOptions.LongRunning);
+        watching.Wait();
+        return editor;
+    }
 
     [Fact]
     public void The_request_names_the_document_the_element_and_a_nonce()
@@ -892,10 +909,12 @@ public sealed class ShowInEditorTests : IDisposable
     [Fact]
     public void Without_an_answer_the_call_does_not_claim_that_anything_was_shown()
     {
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(), "Station1"));
+        NoAnswerExpected();
 
-        Assert.Contains("No AutomationML Editor answered", ex.Message);
-        Assert.Contains("Nothing was shown", ex.Message);
+        var message = Answer.Error(AmlTools.ShowInEditor(Store(), "Station1"));
+
+        Assert.Contains("No AutomationML Editor answered", message);
+        Assert.Contains("Nothing was shown", message);
     }
 
     [Fact]
@@ -903,20 +922,20 @@ public sealed class ShowInEditorTests : IDisposable
     {
         var editor = PlayEditor("mismatch", "the editor has another document open: other.aml");
 
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(), "Station1"));
+        var message = Answer.Error(AmlTools.ShowInEditor(Store(), "Station1"));
         editor.Wait();
 
-        Assert.Contains("did not show it", ex.Message);
-        Assert.Contains("other.aml", ex.Message);
+        Assert.Contains("did not show it", message);
+        Assert.Contains("other.aml", message);
     }
 
     [Fact]
     public void Without_an_editor_the_refusal_tells_the_user_what_to_do()
     {
-        var ex = Assert.Throws<McpException>(() => AmlTools.ShowInEditor(Store(withEditor: false), "Station1"));
+        var message = Answer.Error(AmlTools.ShowInEditor(Store(withEditor: false), "Station1"));
 
-        Assert.Contains("AmlMcp panel", ex.Message);
-        Assert.Contains("Register", ex.Message);
+        Assert.Contains("AmlMcp panel", message);
+        Assert.Contains("Register", message);
     }
 
     [Fact]
@@ -924,7 +943,7 @@ public sealed class ShowInEditorTests : IDisposable
     {
         var store = Store();
 
-        Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "NoSuchElement"));
+        Answer.Error(AmlTools.ShowInEditor(store, "NoSuchElement"));
 
         Assert.False(File.Exists(SelectFile));
     }
@@ -932,11 +951,12 @@ public sealed class ShowInEditorTests : IDisposable
     [Fact]
     public void An_answer_to_an_older_request_is_not_taken_for_this_one()
     {
+        NoAnswerExpected();
         var store = Store();
         File.WriteAllText(EditorHandshake.AckFileFor(SelectFile),
             System.Text.Json.JsonSerializer.Serialize(new ShowAck("an-old-nonce", "selected")));
 
-        Assert.Throws<McpException>(() => AmlTools.ShowInEditor(store, "Station1"));
+        Answer.Error(AmlTools.ShowInEditor(store, "Station1"));
     }
 }
 
@@ -968,5 +988,481 @@ public sealed class LibraryResourceTests : IDisposable
         Assert.Contains("BigLib  (embedded), 500 classes", text);
         Assert.Contains("class(es) not listed here", text);
         Assert.InRange(text.Split('\n').Length, 10, 120);
+    }
+}
+
+/// <summary>
+/// Three defects that real documents brought out: bracketed link partners, an attribute
+/// named RefDataSource, and two relations between the same pair of elements.
+/// </summary>
+public sealed class RealDocumentDefectTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+
+    public void Dispose() => _ws.Dispose();
+
+    private (DocumentStore Store, string Overview) Open(string fileName, string document)
+    {
+        var store = new DocumentStore();
+        return (store, AmlTools.OpenDocumentText(store, _ws.Write(fileName, document)));
+    }
+
+    /// <summary>
+    /// CAEX 2.15 wraps a link partner in brackets, [owner]:[interface], which the editor
+    /// writes by default. Every link of such a document used to have no partner.
+    /// </summary>
+    [Fact]
+    public void Link_partners_in_brackets_resolve_like_the_bare_form()
+    {
+        var (store, overview) = Open("bracketed.aml", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile FileName="bracketed.aml" SchemaVersion="2.15">
+              <InstanceHierarchy Name="Cell">
+                <InternalElement Name="Robot" ID="{33333333-0000-0000-0000-000000000001}">
+                  <ExternalInterface Name="Tool coupling" ID="{33333333-0000-0000-0000-0000000000a1}" />
+                </InternalElement>
+                <InternalElement Name="Gripper" ID="{33333333-0000-0000-0000-000000000002}">
+                  <ExternalInterface Name="Mount" ID="{33333333-0000-0000-0000-0000000000b1}" />
+                </InternalElement>
+                <InternalLink Name="Mounted"
+                              RefPartnerSideA="[{33333333-0000-0000-0000-000000000001}]:[Tool coupling]"
+                              RefPartnerSideB="[{33333333-0000-0000-0000-000000000002}]:[Mount]" />
+              </InstanceHierarchy>
+            </CAEXFile>
+            """);
+
+        Assert.Contains("1 total, 0 across hierarchies, 0 unresolved", overview);
+        Assert.Contains("no problems found", Answer.Text(AmlTools.CheckReferences(store)));
+        Assert.Contains("--link Mounted", Answer.Text(AmlTools.GetNeighbors(store, "Cell/Robot")));
+    }
+
+    /// <summary>
+    /// The attribute conventions are written RefSomething as often as refSomething, but an
+    /// attribute that declares an ID is not a reference to one.
+    /// </summary>
+    [Fact]
+    public void A_capital_Ref_names_a_reference_and_an_xs_ID_does_not()
+    {
+        var (store, overview) = Open("refs.aml", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile FileName="refs.aml" SchemaVersion="2.15">
+              <InstanceHierarchy Name="Plant">
+                <InternalElement Name="Variable" ID="{44444444-0000-0000-0000-000000000001}">
+                  <Attribute Name="RefDataSource" AttributeDataType="xs:string"><Value>{44444444-0000-0000-0000-000000000002}</Value></Attribute>
+                  <Attribute Name="Identification" AttributeDataType="xs:ID"><Value>{44444444-0000-0000-0000-000000000002}</Value></Attribute>
+                </InternalElement>
+                <InternalElement Name="Source" ID="{44444444-0000-0000-0000-000000000002}" />
+              </InstanceHierarchy>
+            </CAEXFile>
+            """);
+
+        Assert.Contains("1 resolved", overview);
+        var neighbours = Answer.Text(AmlTools.GetNeighbors(store, "Plant/Variable"));
+        Assert.Contains("--RefDataSource-->  Plant/Source", neighbours);
+        Assert.DoesNotContain("Identification", neighbours);
+    }
+
+    /// <summary>
+    /// Two elements can be related twice, and which relation it is carries the meaning:
+    /// one points at the other and is pointed back at. Only one of them used to be reported.
+    /// </summary>
+    [Fact]
+    public void Two_relations_between_the_same_pair_are_both_reported()
+    {
+        var (store, _) = Open("both-ways.aml", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile FileName="both-ways.aml" SchemaVersion="2.15">
+              <InstanceHierarchy Name="Process">
+                <InternalElement Name="Step" ID="{66666666-0000-0000-0000-000000000001}">
+                  <Attribute Name="refObj" AttributeDataType="xs:string"><Value>{66666666-0000-0000-0000-000000000002}</Value></Attribute>
+                </InternalElement>
+                <InternalElement Name="Operator" ID="{66666666-0000-0000-0000-000000000002}">
+                  <Attribute Name="refProcess" AttributeDataType="xs:string"><Value>{66666666-0000-0000-0000-000000000001}</Value></Attribute>
+                </InternalElement>
+              </InstanceHierarchy>
+            </CAEXFile>
+            """);
+
+        var result = AmlTools.GetNeighbors(store, "Process/Step");
+        var text = Answer.Text(result);
+
+        Assert.Contains("--refObj-->  Process/Operator", text);
+        Assert.Contains("<--refProcess--  Process/Operator", text);
+        Assert.Equal(2, Answer.Data(result).GetProperty("total").GetInt32());
+    }
+}
+
+/// <summary>
+/// A class card says how often the class is used and lists what belongs to it. Both used
+/// to mislead: subclasses were counted as elements, and long lists just stopped.
+/// </summary>
+public sealed class ClassCardCountTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    public ClassCardCountTests()
+    {
+        var attributes = string.Join("\n", Enumerable.Range(0, 60)
+            .Select(i => $"      <Attribute Name=\"A{i:00}\" AttributeDataType=\"xs:string\"><DefaultValue>{i}</DefaultValue></Attribute>"));
+        var subclasses = string.Join("\n", Enumerable.Range(0, 25)
+            .Select(i => $"    <SystemUnitClass Name=\"Small{i:00}\" RefBaseClassPath=\"Lib/Big\" />"));
+        var document = $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <CAEXFile SchemaVersion="3.0" FileName="big-class.aml" xmlns="http://www.dke.de/CAEX">
+              <RoleClassLib Name="Roles">
+                <RoleClass Name="Machine" />
+              </RoleClassLib>
+              <SystemUnitClassLib Name="Lib">
+                <SystemUnitClass Name="Big">
+            {{attributes}}
+                </SystemUnitClass>
+            {{subclasses}}
+              </SystemUnitClassLib>
+              <InstanceHierarchy Name="Plant">
+                <InternalElement Name="TheOne" ID="{77777777-0000-0000-0000-000000000001}" RefBaseSystemUnitPath="Lib/Big">
+                  <RoleRequirements RefBaseRoleClassPath="Roles/Machine" />
+                </InternalElement>
+              </InstanceHierarchy>
+            </CAEXFile>
+            """;
+        AmlTools.OpenDocumentText(_store, _ws.Write("big-class.aml", document));
+    }
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void Subclasses_are_not_counted_as_elements_that_use_the_class()
+    {
+        var card = AmlTools.ClassCard(_store, "Lib/Big");
+
+        Assert.Contains("used by 1 element(s) in this document, and by 25 class(es) in the libraries", card);
+    }
+
+    /// <summary>A role requirement states the class of the element that holds it, once.</summary>
+    [Fact]
+    public void An_element_that_requires_a_role_counts_once_for_that_role()
+    {
+        Assert.Contains("used by 1 element(s) in this document", AmlTools.ClassCard(_store, "Roles/Machine"));
+    }
+
+    [Fact]
+    public void A_card_that_leaves_something_out_says_how_much()
+    {
+        var card = AmlTools.ClassCard(_store, "Lib/Big");
+
+        Assert.Contains("... 10 more", card);
+        Assert.Contains("subclasses: ", card);
+        Assert.Contains(", ... 5 more", card);
+    }
+}
+
+/// <summary>
+/// A class path may carry an alias. If an ExternalReference declares that alias, the class
+/// has to be in the library it points at; the server used to read it from any library of
+/// the same name without a word.
+/// </summary>
+public sealed class AliasMismatchTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Library = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="PartLib.aml" xmlns="http://www.dke.de/CAEX">
+          <SystemUnitClassLib Name="Shared">
+            <SystemUnitClass Name="Bolt" />
+          </SystemUnitClassLib>
+        </CAEXFile>
+        """;
+
+    /// <summary>
+    /// Vendor declares PartLib.aml, which has Shared/Bolt but no Shared/Nut. The document
+    /// embeds a Shared library of its own, and that one does have a Nut.
+    /// </summary>
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="user.aml" xmlns="http://www.dke.de/CAEX">
+          <ExternalReference Path="PartLib.aml" Alias="Vendor" />
+          <AttributeTypeLib Name="OMG_DD_AttributeTypeLib">
+            <AttributeType Name="DD_Bounds" AttributeDataType="xs:string" />
+          </AttributeTypeLib>
+          <SystemUnitClassLib Name="Shared">
+            <SystemUnitClass Name="Nut" />
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{88888888-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Fastener" ID="{88888888-0000-0000-0000-000000000001}" RefBaseSystemUnitPath="Vendor@Shared/Nut">
+              <Attribute Name="Bounds" AttributeDataType="xs:string" RefAttributeType="OMG_DD@OMG_DD_AttributeTypeLib/DD_Bounds" />
+            </InternalElement>
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public AliasMismatchTests()
+    {
+        _ws.Write("PartLib.aml", Library);
+        AmlTools.OpenDocumentText(_store, _ws.Write("user.aml", Document));
+    }
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_declared_alias_that_does_not_carry_the_class_is_reported()
+    {
+        var check = AmlTools.CheckText(_store);
+        var data = Answer.Data(AmlTools.CheckReferences(_store));
+
+        Assert.Contains("alias does not carry the class: Vendor@Shared/Nut", check);
+        Assert.Contains("the library behind Vendor has no Shared/Nut", check);
+        Assert.Contains("Shared/Nut from Shared was read instead", check);
+        Assert.Contains(Answer.Strings(data.GetProperty("problems"), "kind"), k => k == "aliasWithoutTheClass");
+
+        // The class is still shown, so the element card stays usable.
+        Assert.Contains("class: Vendor@Shared/Nut", AmlTools.ElementCard(_store, "Plant/Fastener"));
+    }
+
+    /// <summary>
+    /// An alias no ExternalReference declares is how AML documents name the standard
+    /// libraries they embed. Reporting those would bury the real finding.
+    /// </summary>
+    [Fact]
+    public void An_alias_of_an_embedded_standard_library_is_left_alone()
+    {
+        var check = AmlTools.CheckText(_store);
+
+        Assert.DoesNotContain("OMG_DD", check);
+        Assert.Equal(1, check.Split('\n').Count(l => l.Contains("alias does not carry the class")));
+    }
+}
+
+/// <summary>
+/// CAEX does not make names unique, and some documents reuse an ID. Both used to be
+/// answered with the first element found and nothing said about the others.
+/// </summary>
+public sealed class AmbiguityTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="twins.aml" xmlns="http://www.dke.de/CAEX">
+          <InstanceHierarchy Name="Plant" ID="{99990000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Assembly" ID="{99990000-0000-0000-0000-000000000001}">
+              <InternalElement Name="Spring" ID="{99990000-0000-0000-0000-000000000002}" />
+              <InternalElement Name="Spring" ID="{99990000-0000-0000-0000-000000000003}" />
+            </InternalElement>
+            <InternalElement Name="First" ID="{99990000-0000-0000-0000-00000000000a}" />
+            <InternalElement Name="Second" ID="{99990000-0000-0000-0000-00000000000a}" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public AmbiguityTests() => AmlTools.OpenDocumentText(_store, _ws.Write("twins.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_path_that_leads_to_two_elements_is_refused_with_both_ids()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ElementCard(_store, "Plant/Assembly/Spring"));
+
+        Assert.Contains("leads to 2 elements", ex.Message);
+        Assert.Contains("{99990000-0000-0000-0000-000000000002}", ex.Message);
+        Assert.Contains("{99990000-0000-0000-0000-000000000003}", ex.Message);
+    }
+
+    [Fact]
+    public void An_unambiguous_path_still_answers()
+    {
+        Assert.Contains("path: Plant/Assembly", AmlTools.ElementCard(_store, "Plant/Assembly"));
+    }
+
+    [Fact]
+    public void A_repeated_id_names_both_elements_and_says_which_one_answers()
+    {
+        var check = AmlTools.CheckText(_store);
+        var card = AmlTools.ElementCard(_store, "{99990000-0000-0000-0000-00000000000a}");
+        var data = Answer.Data(AmlTools.CheckReferences(_store));
+
+        Assert.Contains("duplicate ID: {99990000-0000-0000-0000-00000000000a}  (Plant/First, Plant/Second", check);
+        Assert.Contains("answers about this ID are about Plant/First", check);
+
+        Assert.Contains("2 elements carry this ID", card);
+        Assert.Contains("the others are Plant/Second", card);
+
+        Assert.Contains(data.GetProperty("problems").EnumerateArray(),
+            p => p.GetProperty("kind").GetString() == "duplicateId"
+                 && p.GetProperty("message").GetString()!.Contains("Plant/Second"));
+    }
+}
+
+/// <summary>
+/// A class library holds templates: elements, interfaces and links of its own. They used
+/// to be counted and searched as if they were part of the plant.
+/// </summary>
+public sealed class ClassTemplateTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+    private readonly string _overview;
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="templates.aml" xmlns="http://www.dke.de/CAEX">
+          <SystemUnitClassLib Name="Lib">
+            <SystemUnitClass Name="Station">
+              <InternalElement Name="Drive" ID="{aaaa0000-0000-0000-0000-000000000001}">
+                <ExternalInterface Name="Port" ID="{aaaa0000-0000-0000-0000-0000000000a1}" />
+              </InternalElement>
+              <InternalElement Name="Sensor" ID="{aaaa0000-0000-0000-0000-000000000002}">
+                <ExternalInterface Name="Port" ID="{aaaa0000-0000-0000-0000-0000000000a2}" />
+              </InternalElement>
+              <InternalLink Name="Wiring"
+                            RefPartnerSideA="{aaaa0000-0000-0000-0000-0000000000a1}"
+                            RefPartnerSideB="{aaaa0000-0000-0000-0000-0000000000a2}" />
+            </SystemUnitClass>
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{aaaa0000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Drive" ID="{aaaa0000-0000-0000-0000-000000000011}" RefBaseSystemUnitPath="Lib/Station" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public ClassTemplateTests() =>
+        _overview = AmlTools.OpenDocumentText(_store, _ws.Write("templates.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void The_overview_says_how_many_links_belong_to_the_templates()
+    {
+        Assert.Contains("InternalLinks: 1 total", _overview);
+        Assert.Contains("(1 of them inside class library templates)", _overview);
+        Assert.Contains("Plant: 1 elements", _overview);
+    }
+
+    [Fact]
+    public void The_search_answers_about_the_plant_and_counts_the_templates_apart()
+    {
+        var text = AmlTools.FindElementsText(_store, "Drive");
+        var data = Answer.Data(AmlTools.FindElements(_store, "Drive"));
+
+        Assert.Contains("1 match(es)", text);
+        Assert.Contains("Plant/Drive", text);
+        Assert.DoesNotContain("Lib/Station/Drive  [", text);
+        Assert.Contains("1 further match(es) are templates inside class libraries", text);
+
+        Assert.Equal(1, data.GetProperty("total").GetInt32());
+        Assert.Equal(1, data.GetProperty("inClassLibraries").GetInt32());
+    }
+
+    [Fact]
+    public void A_template_element_says_where_it_sits_instead_of_showing_an_empty_hierarchy()
+    {
+        var card = AmlTools.ElementCard(_store, "{aaaa0000-0000-0000-0000-000000000001}");
+
+        Assert.Contains("path: Lib/Station/Drive", card);
+        Assert.Contains("this is a template inside a class library", card);
+        Assert.DoesNotContain("hierarchy: \n", card);
+    }
+}
+
+/// <summary>
+/// Smaller things an element card used to pass over: a link inside one element, an ID
+/// that names an interface or a class, and an interface class in the wrong attribute.
+/// </summary>
+public sealed class ElementCardDetailTests : IDisposable
+{
+    private readonly Workspace _ws = new();
+    private readonly DocumentStore _store = new();
+
+    private const string Document = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <CAEXFile SchemaVersion="3.0" FileName="details.aml" xmlns="http://www.dke.de/CAEX">
+          <InterfaceClassLib Name="Interfaces">
+            <InterfaceClass Name="Coupling" />
+          </InterfaceClassLib>
+          <SystemUnitClassLib Name="Lib">
+            <SystemUnitClass Name="Loop" ID="{bbbb0000-0000-0000-0000-00000000c001}" />
+          </SystemUnitClassLib>
+          <InstanceHierarchy Name="Plant" ID="{bbbb0000-0000-0000-0000-0000000000f1}">
+            <InternalElement Name="Bypass" ID="{bbbb0000-0000-0000-0000-000000000001}">
+              <ExternalInterface Name="In" ID="{bbbb0000-0000-0000-0000-0000000000a1}" RefBaseClassPath="Interfaces/Coupling">
+                <Attribute Name="NodeId" AttributeDataType="xs:string"><Value>ns=2;i=42</Value></Attribute>
+              </ExternalInterface>
+              <ExternalInterface Name="Out" ID="{bbbb0000-0000-0000-0000-0000000000a2}" RefBaseSystemUnitPath="Lib/Loop" />
+            </InternalElement>
+            <InternalLink Name="Shortcut"
+                          RefPartnerSideA="{bbbb0000-0000-0000-0000-0000000000a1}"
+                          RefPartnerSideB="{bbbb0000-0000-0000-0000-0000000000a2}" />
+          </InstanceHierarchy>
+        </CAEXFile>
+        """;
+
+    public ElementCardDetailTests() => AmlTools.OpenDocumentText(_store, _ws.Write("details.aml", Document));
+
+    public void Dispose() => _ws.Dispose();
+
+    [Fact]
+    public void A_link_between_two_interfaces_of_one_element_is_named()
+    {
+        var card = AmlTools.ElementCard(_store, "Plant/Bypass");
+
+        Assert.Contains("link Shortcut runs between two interfaces of this element: In -> Out", card);
+        Assert.DoesNotContain("connections: none", card);
+    }
+
+    [Fact]
+    public void An_interface_id_says_so_and_shows_what_the_interface_carries()
+    {
+        var card = AmlTools.ElementCard(_store, "{bbbb0000-0000-0000-0000-0000000000a1}");
+
+        Assert.Contains("the ID names the interface In", card);
+        Assert.Contains("attributes of the interface In:", card);
+        Assert.Contains("NodeId = ns=2;i=42", card);
+    }
+
+    [Fact]
+    public void An_interface_class_in_the_wrong_attribute_is_pointed_out()
+    {
+        Assert.Contains("RefBaseSystemUnitPath=Lib/Loop is the wrong attribute for an interface",
+            AmlTools.ElementCard(_store, "Plant/Bypass"));
+    }
+
+    [Fact]
+    public void The_id_of_a_class_sends_the_caller_to_get_class()
+    {
+        var ex = Assert.Throws<McpException>(() => AmlTools.ElementCard(_store, "{bbbb0000-0000-0000-0000-00000000c001}"));
+
+        Assert.Contains("SystemUnitClass Lib/Loop", ex.Message);
+        Assert.Contains("get_class", ex.Message);
+    }
+}
+
+/// <summary>A whole drive as the root used to fence out everything on it.</summary>
+public sealed class DriveRootTests
+{
+    [Fact]
+    public void A_drive_root_lets_through_what_is_on_that_drive()
+    {
+        var drive = Path.GetPathRoot(Path.GetTempPath())!;
+        var options = ServerOptions.Parse(new[] { "--root", drive });
+
+        Assert.True(options.Allows(Path.Combine(Path.GetTempPath(), "model.aml")));
+        Assert.True(options.Allows(drive));
+    }
+
+    [Fact]
+    public void A_root_with_a_trailing_separator_fences_the_same_as_one_without()
+    {
+        var directory = Path.GetTempPath();
+        var withSeparator = ServerOptions.Parse(new[] { "--root", directory });
+        var without = ServerOptions.Parse(new[] { "--root", Path.TrimEndingDirectorySeparator(directory) });
+        var file = Path.Combine(directory, "sub", "model.aml");
+
+        Assert.True(withSeparator.Allows(file));
+        Assert.True(without.Allows(file));
+        Assert.False(without.Allows(Path.Combine(Path.TrimEndingDirectorySeparator(directory) + "-other", "model.aml")));
     }
 }

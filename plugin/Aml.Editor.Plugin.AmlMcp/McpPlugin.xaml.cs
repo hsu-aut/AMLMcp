@@ -15,6 +15,7 @@ public partial class McpPlugin : PluginViewBase
 
     private string? _documentPath;
     private bool _rootEdited;
+    private bool _permissionRead;
     private EditorLink? _link;
     private DispatcherTimer? _poll;
 
@@ -25,6 +26,9 @@ public partial class McpPlugin : PluginViewBase
         IsReactive = false;
 
         RootBox.TextChanged += (_, _) => _rootEdited = true;
+        // Granting or withdrawing the permission changes the entry, so the warning is re-checked.
+        WriteBox.Checked += (_, _) => WarnWhenAssistantIsOutOfDate();
+        WriteBox.Unchecked += (_, _) => WarnWhenAssistantIsOutOfDate();
         ShowDefaultQuestions(null);
 
         // Lets the assistant select an element in the editor's tree. Docking, floating and
@@ -42,6 +46,13 @@ public partial class McpPlugin : PluginViewBase
                 _poll = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
                     (_, _) => _link?.Poll(), Dispatcher);
                 _poll.Start();
+            }
+            // Once per session, and before the warning: the configuration is what counts, not the
+            // state a fresh checkbox happens to start in.
+            if (!_permissionRead)
+            {
+                _permissionRead = true;
+                WriteBox.IsChecked = McpProbe.ClaudeDesktopMayWrite();
             }
             WarnWhenAssistantIsOutOfDate();
         };
@@ -86,6 +97,21 @@ public partial class McpPlugin : PluginViewBase
         UseDocument(amlFilePath);
     }
 
+    /// <summary>
+    /// The editor calls this on every active plugin when it has loaded a document, and for this
+    /// panel it is the only notification that arrives: ChangeAMLFilePath reaches a plugin only
+    /// while it is both reactive and active, and this one is deliberately not reactive, so that
+    /// opening a document does not pull its tab to the front. Without this override a document
+    /// opened after the panel was built went unnoticed: the readable directory stayed empty, the
+    /// server was registered without a fence, and the file the assistant follows was whatever an
+    /// earlier session had left behind.
+    /// </summary>
+    public override void PublishAutomationMLFileAndObject(string amlFilePath, Aml.Engine.CAEX.CAEXBasicObject selectedObject)
+    {
+        base.PublishAutomationMLFileAndObject(amlFilePath, selectedObject);
+        UseDocument(amlFilePath);
+    }
+
     private void UseDocument(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
@@ -106,9 +132,13 @@ public partial class McpPlugin : PluginViewBase
     private void WarnWhenAssistantIsOutOfDate()
     {
         if (ServerPath() is not { } exe) return;
-        if (McpProbe.ClaudeDesktopIsCurrent(exe, Root())) return;
-        if (!File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "claude_desktop_config.json"))) return;
-        Status(false, "Claude Desktop is configured for an older version or another directory: press Register, then restart it");
+        if (!File.Exists(McpProbe.ClaudeDesktopConfigFile)) return;
+        if (McpProbe.ClaudeDesktopIsCurrent(exe, Root(), writable: Writable()))
+        {
+            Status(true, "Claude Desktop is configured for this directory");
+            return;
+        }
+        Status(false, "Claude Desktop is configured for another directory, another permission or an older version: press Register, then restart it");
     }
 
     private void OnBrowse(object sender, RoutedEventArgs e)
@@ -133,6 +163,9 @@ public partial class McpPlugin : PluginViewBase
     }
 
     private string Root() => RootBox.Text.Trim();
+
+    /// <summary>Whether the user allows the assistant to create documents in that directory.</summary>
+    private bool Writable() => WriteBox.IsChecked == true;
 
     private void Status(bool ok, string text)
     {
@@ -201,14 +234,50 @@ public partial class McpPlugin : PluginViewBase
         if (ServerPath() is not { } exe) return;
         try
         {
-            var path = McpProbe.RegisterWithClaudeDesktop(exe, Root());
+            var path = McpProbe.RegisterWithClaudeDesktop(exe, Root(), writable: Writable());
             Status(true, "registered with Claude Desktop, restart it to pick the server up");
             ResultBox.Visibility = Visibility.Visible;
             ResultHeadline.Text = "Claude Desktop";
             ResultFacts.Text = path;
-            ResultVerdict.Text = $"The assistant may now read {Root()} and follows the document you open here";
+            ResultVerdict.Text = Writable()
+                ? $"The assistant may now read {Root()}, create new documents there, and follows the document you open here"
+                : $"The assistant may now read {Root()} and follows the document you open here";
             ResultVerdict.Foreground = Good;
-            Details.Text = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
+            Details.Text = McpProbe.Configuration(exe, Root(), Writable()).ToJsonString(McpProbe.Pretty);
+        }
+        catch (Exception ex)
+        {
+            Status(false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Any other MCP client: the user points at its configuration file and the panel writes the
+    /// entry into it. Deliberately not a list of vendors and their paths, which would go stale
+    /// and could write into the wrong file.
+    /// </summary>
+    private void OnRegisterOtherClient(object sender, RoutedEventArgs e)
+    {
+        if (ServerPath() is not { } exe) return;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Configuration file of the MCP client",
+            Filter = "Configuration (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = false,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var written = McpProbe.RegisterInFile(exe, Root(), dialog.FileName, Writable());
+            Status(true, "written, restart the client to pick the server up");
+            ResultBox.Visibility = Visibility.Visible;
+            ResultHeadline.Text = "Another client";
+            ResultFacts.Text = written.Path;
+            ResultVerdict.Text = written.OtherServers == 1
+                ? $"The entry went in under '{written.Key}'; one other server in that file was left untouched"
+                : $"The entry went in under '{written.Key}'; {written.OtherServers} other servers in that file were left untouched";
+            ResultVerdict.Foreground = Good;
+            Details.Text = McpProbe.Configuration(exe, Root(), Writable()).ToJsonString(McpProbe.Pretty);
         }
         catch (Exception ex)
         {
@@ -219,7 +288,7 @@ public partial class McpPlugin : PluginViewBase
     private void OnCopyConfiguration(object sender, RoutedEventArgs e)
     {
         if (ServerPath() is not { } exe) return;
-        var json = McpProbe.Configuration(exe, Root()).ToJsonString(McpProbe.Pretty);
+        var json = McpProbe.Configuration(exe, Root(), Writable()).ToJsonString(McpProbe.Pretty);
         Clipboard.SetText(json);
         Status(true, "configuration copied, paste it into your assistant's settings");
         ResultBox.Visibility = Visibility.Visible;

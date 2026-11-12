@@ -33,12 +33,17 @@ DEFAULT_TIMEOUT = 60.0
 
 
 def _find_exe():
-    base = os.path.join(HERE, "..", "src", "AmlMcp", "bin", "Release", "net10.0")
-    for name in ("aml-mcp.exe", "aml-mcp"):
-        candidate = os.path.join(base, name)
-        if os.path.exists(candidate):
-            return candidate
-    return os.path.join(base, "aml-mcp.exe")
+    """The newest build there is. A stale Release binary would pass a test of nothing."""
+    bin_dir = os.path.join(HERE, "..", "src", "AmlMcp", "bin")
+    found = []
+    for configuration in ("Release", "Debug"):
+        for name in ("aml-mcp.exe", "aml-mcp"):
+            candidate = os.path.join(bin_dir, configuration, "net10.0", name)
+            if os.path.exists(candidate):
+                found.append(candidate)
+    if not found:
+        return os.path.join(bin_dir, "Release", "net10.0", "aml-mcp.exe")
+    return max(found, key=os.path.getmtime)
 
 
 EXE = os.environ.get("AML_MCP_EXE") or _find_exe()
@@ -162,7 +167,7 @@ def default_tour(document):
                              "SpindleSpeed = 2400 1/min",
                              "Manufacturer = Example Corp  (from Demo@DemoUnitLib/Equipment)",
                              "--link StepToStation",
-                             "[other hierarchy: ProcessView]"],
+                             "[crosses from PlantStructure to ProcessView]"],
              element="PlantStructure/Line/DrillingStation"),
         call("find_path", ["Path with 2 step(s)", "StepToStation", "StationToBehavior",
                            "BehaviorView/Drilling"],

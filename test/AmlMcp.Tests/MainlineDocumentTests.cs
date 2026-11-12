@@ -102,6 +102,21 @@ public sealed class MainlineDocumentTests : IDisposable
         Assert.DoesNotContain(Answer.Strings(data.GetProperty("problems"), "kind"), k => k == "mirrorWithoutMaster");
     }
 
+    // The same element keeps the class that was meant: the missing library is worth
+    // reporting, but it must not cost the element its class and inherited attributes.
+    [Fact]
+    public void A_class_name_without_its_library_is_not_counted_or_shown_as_a_mirror()
+    {
+        var card = AmlTools.ElementCard(_store, "Shopfloor/Twin");
+
+        Assert.DoesNotContain("mirror of:", card);
+        Assert.Contains("class: Drill", card);
+        Assert.Contains("SpindleSpeed", card);
+
+        Assert.DoesNotContain("of them mirrors", AmlTools.OpenDocumentText(_store, Path.Combine(_ws.Dir, "rich.aml")));
+        Assert.Contains("Shopfloor/Twin", AmlTools.FindElementsText(_store, classContains: "Drill"));
+    }
+
     [Fact]
     public void An_attribute_typed_xs_IDREF_is_a_reference_in_both_convention_modes()
     {

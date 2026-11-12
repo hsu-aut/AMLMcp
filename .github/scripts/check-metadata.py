@@ -121,6 +121,20 @@ def main():
             if all(value == expected for value in versions.values()):
                 ok(f"{relative}: all {len(versions)} version field(s) are {expected}")
 
+    # The editor plugin repeats the version in a file of its own, by hand. A bump that misses
+    # it ships a package whose own metadata names another version.
+    plugin_metadata = os.path.join(ROOT, "plugin", "Aml.Editor.Plugin.AmlMcp", "Metadata.xml")
+    if expected and os.path.exists(plugin_metadata):
+        relative = os.path.relpath(plugin_metadata, ROOT)
+        with open(plugin_metadata, encoding="utf-8-sig") as handle:
+            found = re.search(r"<Version>\s*([^<\s]+)\s*</Version>", handle.read())
+        if not found:
+            fail(f"{relative} declares no <Version>")
+        elif found.group(1) != expected:
+            fail(f"{relative}: <Version> is {found.group(1)!r}, expected {expected!r} from {source}")
+        else:
+            ok(f"{relative}: <Version> is {expected}")
+
     print()
     print("metadata check failed" if problems else "metadata check passed")
     return 1 if problems else 0

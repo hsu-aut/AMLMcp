@@ -97,6 +97,12 @@ public sealed class DocumentStore
     /// <summary>The document an editor points at, and why it cannot be used when it cannot.</summary>
     public string? FollowedProblem { get; private set; }
 
+    /// <summary>
+    /// The document an editor points at through --follow, or null. Public because the write
+    /// path has to refuse writing over the file the user is looking at.
+    /// </summary>
+    public string? FollowedDocument() => Followed();
+
     private string? Followed()
     {
         FollowedProblem = null;

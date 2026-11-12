@@ -232,6 +232,27 @@ public sealed class TextAndDataAgreeTests : IDisposable
 
     private static string TextOf(ModelContextProtocol.Protocol.CallToolResult result) => Answer.Text(result);
 
+    /// <summary>The write tool answers from one outcome, so its two halves cannot disagree.</summary>
+    [Fact]
+    public void The_write_tool_agrees_with_its_structured_half()
+    {
+        var store = new DocumentStore(ServerOptions.Parse(new[] { "--root", _ws.Dir, "--write", _ws.Dir }, _ => null));
+        var spec = new DocumentSpec(null, null, null, null, null,
+            new[] { new HierarchySpec("Plant", null, new[] { new ElementSpec("A", "Drill", null, null, null, null, null, null, null) }, null) });
+        var target = Path.Combine(_ws.Dir, "agree.aml");
+
+        var result = AmlTools.WriteAmlDocument(store, target, spec);
+        var data = Answer.Data(result);
+
+        Assert.Equal(target, data.GetProperty("writtenTo").GetString());
+        Assert.Contains(target, TextOf(result), StringComparison.Ordinal);
+        Assert.Equal(1,
+            data.GetProperty("document").GetProperty("hierarchies")[0].GetProperty("elements").GetInt32());
+        Assert.Equal(TextOf(result).Contains("no problems found", StringComparison.Ordinal),
+            data.GetProperty("check").GetProperty("ok").GetBoolean());
+    }
+
+
     [Fact]
     public void A_filtered_search_filters_both_halves()
     {

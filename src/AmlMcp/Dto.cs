@@ -12,7 +12,10 @@ public sealed record ContainerPartInfo(string Path, long Size, string? Role);
 
 public sealed record LibraryInfo(string Name, int Classes, bool External);
 
-public sealed record HierarchyInfo(string Name, string? Id, int Elements, int Mirrors, string? Description, IReadOnlyList<ClassCountInfo> ByClass);
+/// <summary><paramref name="ByClass"/> is bounded like every other list the server returns;
+/// <paramref name="DistinctClasses"/> says how many there are in all.</summary>
+public sealed record HierarchyInfo(string Name, string? Id, int Elements, int Mirrors, string? Description,
+    IReadOnlyList<ClassCountInfo> ByClass, int DistinctClasses);
 
 public sealed record ClassCountInfo(string Class, int Count);
 
@@ -65,7 +68,7 @@ public sealed record ElementInfo(
     IReadOnlyList<string> DanglingReferences,
     int HiddenPresentationAttributes);
 
-public sealed record ElementListInfo(int Total, int Shown, IReadOnlyList<ElementRef> Elements);
+public sealed record ElementListInfo(int Total, int Shown, IReadOnlyList<ElementRef> Elements, int InClassLibraries);
 
 public sealed record PathStepInfo(string Kind, string Detail, ElementRef To);
 
@@ -83,7 +86,8 @@ public sealed record ClassDetailInfo(
     IReadOnlyList<string> Interfaces,
     IReadOnlyList<string> SupportedRoles,
     IReadOnlyList<string> Subclasses,
-    int UsedByElements);
+    int UsedByElements,
+    int UsedByClasses);
 
 public sealed record ClassListInfo(int Total, int Shown, IReadOnlyList<ClassSummaryInfo> Classes);
 
@@ -118,6 +122,13 @@ public sealed record CheckInfo(
     int Links,
     int References,
     int Ids);
+
+/// <summary>What a write produced, for a client that reads the structured half.</summary>
+public sealed record WriteResultInfo(
+    string? WrittenTo,
+    bool Preview,
+    DocumentInfo Document,
+    CheckInfo Check);
 
 internal static class Json
 {

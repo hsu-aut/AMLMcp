@@ -14,7 +14,10 @@ internal static class Structured
         attribute.Element(C + "Value") is null && attribute.Element(C + "DefaultValue") is not null;
 
     public static ElementRef Ref(AmlModel m, XElement e) =>
-        new(IdOf(e), NameOf(e), PathOf(e), HierarchyNameOf(e), m.ClassOf(e), MirrorReferenceOf(e) is not null);
+        new(IdOf(e), NameOf(e), PathOf(e), HierarchyNameOf(e), m.ClassOf(e), m.MirrorReferenceOf(e) is not null);
+
+    /// <summary>How many classes the overview names per hierarchy, as the text half does.</summary>
+    private const int ClassBreakdown = 6;
 
     public static DocumentInfo Document(AmlModel m)
     {
@@ -27,7 +30,8 @@ internal static class Structured
                 .Select(g => new ClassCountInfo(g.Key, g.Count()))
                 .ToList();
             return new HierarchyInfo(NameOf(ih), IdOf(ih), elements.Count,
-                elements.Count(e => MirrorReferenceOf(e) is not null), DescriptionOf(ih), byClass);
+                elements.Count(e => m.MirrorReferenceOf(e) is not null), DescriptionOf(ih),
+                byClass.Take(ClassBreakdown).ToList(), byClass.Count);
         }).ToList();
 
         var resolvedRefs = m.Refs.Where(r => r.Resolved).ToList();
@@ -129,6 +133,7 @@ internal static class Structured
                 (string?)inherited.Attribute.Attribute("Unit"), IsDefaultValue(inherited.Attribute), inherited.ClassKey));
         }
 
+        var users = m.UsersOf(cls);
         return new ClassDetailInfo(
             info.Key, info.Kind, info.Library, info.External, info.SourceFile, DescriptionOf(cls),
             m.ClassChain((string?)cls.Attribute("RefBaseClassPath")).Select(c => c.Key).ToList(),
@@ -137,7 +142,8 @@ internal static class Structured
             cls.Elements(C + "SupportedRoleClass").Select(r => (string?)r.Attribute("RefRoleClassPath") ?? "").ToList(),
             m.Classes.Values.Where(c => m.ResolveClass((string?)c.Element.Attribute("RefBaseClassPath"))?.Element == cls)
                 .Select(c => c.PlainPath).Distinct().ToList(),
-            m.Root.Descendants().Count(x => ClassReferenceAttributes.Any(a => m.ResolveClass((string?)x.Attribute(a))?.Element == cls)));
+            users.Elements,
+            users.Classes);
     }
 
     public static ElementListInfo Search(AmlModel m, string? query, string? classContains,
@@ -159,8 +165,10 @@ internal static class Structured
                    || roles.Any(r => r.Contains(q, StringComparison.OrdinalIgnoreCase));
         }).ToList();
 
-        return new ElementListInfo(hits.Count, Math.Min(hits.Count, limit),
-            hits.Take(limit).Select(e => Ref(m, e)).ToList());
+        // Class templates are counted, not listed: they are not elements of the plant.
+        var inHierarchies = hits.Where(e => !IsInClassLibrary(e)).ToList();
+        return new ElementListInfo(inHierarchies.Count, Math.Min(inHierarchies.Count, limit),
+            inHierarchies.Take(limit).Select(e => Ref(m, e)).ToList(), hits.Count - inHierarchies.Count);
     }
 
     public static bool Matches(AmlModel m, string classReference, string text) =>
@@ -176,7 +184,7 @@ internal static class Structured
         var unresolved = m.Root.Descendants()
             .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
             .Where(x => !string.IsNullOrWhiteSpace(x.Value))
-            .Where(x => !(MirrorReferenceOf(x.Element) is not null &&
+            .Where(x => !(BaseReferenceWithoutPath(x.Element) is not null &&
                           ((x.Attribute == "RefBaseSystemUnitPath" && x.Element.Name.LocalName == "InternalElement") ||
                            (x.Attribute == "RefBaseClassPath" && x.Element.Name.LocalName == "ExternalInterface"))))
             .Where(x => m.ResolveClass(x.Value, x.Element) is null)
@@ -193,6 +201,19 @@ internal static class Structured
                 $"{r.Alias} -> {r.Path} ({r.Problem})"));
         foreach (var g in unresolved.Where(g => !missingAliases.Any(a => g.Key.StartsWith(a + "@", StringComparison.Ordinal))))
             problems.Add(new ProblemInfo("unresolvedClassPath", $"{g.Key} (used {g.Count()}x)"));
+        foreach (var g in m.Root.Descendants()
+                     .SelectMany(e => ClassReferenceAttributes.Select(a => (Element: e, Attribute: a, Value: (string?)e.Attribute(a))))
+                     .Where(x => !string.IsNullOrWhiteSpace(x.Value))
+                     .Where(x => !(BaseReferenceWithoutPath(x.Element) is not null &&
+                                   ((x.Attribute == "RefBaseSystemUnitPath" && x.Element.Name.LocalName == "InternalElement") ||
+                                    (x.Attribute == "RefBaseClassPath" && x.Element.Name.LocalName == "ExternalInterface"))))
+                     .GroupBy(x => x.Value!))
+        {
+            if (m.ResolvedPastItsAlias(g.Key) is not { } match) continue;
+            problems.Add(new ProblemInfo("aliasWithoutTheClass",
+                $"{g.Key} (used {g.Count()}x) was read from {match.Key} in {match.Library}"));
+        }
+
         foreach (var dm in m.DanglingMirrors)
             problems.Add(m.ClassByName(dm.MasterId) is { } likely
                 ? new ProblemInfo("classPathWithoutLibrary", $"{PathOf(dm.Mirror)} refers to {dm.MasterId}, probably {likely.Key}")
@@ -202,7 +223,10 @@ internal static class Structured
         foreach (var r in m.Refs.Where(r => !r.Resolved))
             problems.Add(new ProblemInfo("danglingReference", $"{PathOf(r.Source)}.{r.AttributePath} = {r.Value}"));
         foreach (var id in m.DuplicateIds.Distinct())
-            problems.Add(new ProblemInfo("duplicateId", id));
+            problems.Add(new ProblemInfo("duplicateId",
+                m.ElementsByDuplicateId.GetValueOrDefault(NormId(id)) is { Count: > 0 } all
+                    ? $"{id} ({string.Join(", ", all.Select(DisplayPathOf))})"
+                    : id));
         foreach (var id in m.CaseVariantIds.Distinct())
             notes.Add(new ProblemInfo("idCaseVariant", $"{id} appears with different letter case; treated as one object"));
 
@@ -210,7 +234,7 @@ internal static class Structured
             notes.Add(new ProblemInfo("libraryOutsideContainer", $"{r.Alias} -> {r.Path}"));
         foreach (var g in m.Links.Where(l => l.Resolved).SelectMany(l => new[] { l.InterfaceA!, l.InterfaceB! })
                      .GroupBy(i => i).Where(g => g.Count() > 1))
-            notes.Add(new ProblemInfo("sharedInterface", $"{PathOf(g.Key)} is used by {g.Count()} links"));
+            notes.Add(new ProblemInfo("sharedInterface", $"{DisplayPathOf(g.Key)} is used by {g.Count()} links"));
 
         return new CheckInfo(Path.GetFileName(m.FilePath), problems.Count == 0, problems, notes,
             m.Classes.Count, m.Links.Count, m.Refs.Count, m.ById.Count);

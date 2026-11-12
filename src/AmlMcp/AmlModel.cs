@@ -58,7 +58,7 @@ public sealed class AmlModel
     public DateTime LoadedWriteTimeUtc { get; }
     public XElement Root { get; }
     public long FileSize { get; }
-    public string SchemaVersion { get; }
+    public string SchemaVersion { get; private set; } = "?";
 
     /// <summary>True when the file is an AMLX container (a ZIP package).</summary>
     public bool IsContainer { get; }
@@ -70,6 +70,12 @@ public sealed class AmlModel
 
     public Dictionary<string, XElement> ById { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> DuplicateIds { get; } = new();
+
+    /// <summary>
+    /// Every element an ID was found on, for the IDs that appear more than once. Answers
+    /// use the first; the others would be unreachable without this.
+    /// </summary>
+    public Dictionary<string, List<XElement>> ElementsByDuplicateId { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>IDs that appear twice with different letter case. Treated as one object.</summary>
     public List<string> CaseVariantIds { get; } = new();
@@ -84,7 +90,7 @@ public sealed class AmlModel
     public List<LinkInfo> Links { get; } = new();
     public List<RefInfo> Refs { get; } = new();
     public List<DanglingMirror> DanglingMirrors { get; } = new();
-    public List<XElement> Hierarchies { get; }
+    public List<XElement> Hierarchies { get; private set; } = new();
 
     private readonly Dictionary<string, ClassInfo> _plainIndex = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<ClassInfo>> _byName = new(StringComparer.Ordinal);
@@ -145,29 +151,7 @@ public sealed class AmlModel
                 baseLocation = Path.GetDirectoryName(path)!;
             }
 
-            SchemaVersion = (string?)Root.Attribute("SchemaVersion") ?? "?";
-
-            foreach (var el in Root.DescendantsAndSelf())
-            {
-                var id = (string?)el.Attribute("ID");
-                if (string.IsNullOrWhiteSpace(id)) continue;
-                if (ById.TryAdd(NormId(id), el)) { _rawIds[NormId(id)] = id.Trim(); continue; }
-                if (string.Equals(_rawIds.GetValueOrDefault(NormId(id)), id.Trim(), StringComparison.Ordinal))
-                    DuplicateIds.Add(id);
-                else
-                    CaseVariantIds.Add(id);
-            }
-
-            _fileCache[IsContainer ? ContainerPrefix + RootPart : path] = Root;
-
-            Hierarchies = Root.Elements(C + "InstanceHierarchy").ToList();
-            IndexClasses(Root, IsContainer ? ContainerPrefix + RootPart : path, alias: null, external: false);
-            LoadExternalReferences(Root, baseLocation, inContainer: IsContainer, depth: 0, topLevel: true);
-            var missing = ExternalRefs.Where(r => !r.Loaded).Select(r => Path.GetFileName(r.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            NestedLibraryProblems.RemoveAll(r => missing.Contains(Path.GetFileName(r.Path)));
-            IndexLinks();
-            IndexReferences();
-            IndexMirrors();
+            Index(IsContainer ? ContainerPrefix + RootPart : path, baseLocation);
         }
         finally
         {
@@ -177,8 +161,67 @@ public sealed class AmlModel
         }
     }
 
+    /// <summary>
+    /// A document that is not on disk: the tree as it would be written, with the path it
+    /// would have, so that a relative ExternalReference resolves from there. This is what
+    /// lets a write be checked before anything is written.
+    /// </summary>
+    private AmlModel(XElement root, string pretendPath, ServerOptions options)
+    {
+        Options = options;
+        FilePath = pretendPath;
+        LoadedWriteTimeUtc = DateTime.UtcNow;
+        Root = root;
+        FileSize = root.ToString(SaveOptions.DisableFormatting).Length;
+        Index(pretendPath, Path.GetDirectoryName(pretendPath) ?? ".");
+    }
+
+    /// <summary>Everything that follows from the tree, however the tree was obtained.</summary>
+    private void Index(string cacheKey, string baseLocation)
+    {
+        {
+            SchemaVersion = (string?)Root.Attribute("SchemaVersion") ?? "?";
+
+            foreach (var el in Root.DescendantsAndSelf())
+            {
+                var id = (string?)el.Attribute("ID");
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                if (ById.TryAdd(NormId(id), el)) { _rawIds[NormId(id)] = id.Trim(); continue; }
+                if (string.Equals(_rawIds.GetValueOrDefault(NormId(id)), id.Trim(), StringComparison.Ordinal))
+                {
+                    DuplicateIds.Add(id);
+                    if (!ElementsByDuplicateId.TryGetValue(NormId(id), out var all))
+                        ElementsByDuplicateId[NormId(id)] = all = new List<XElement> { ById[NormId(id)] };
+                    all.Add(el);
+                }
+                else
+                    CaseVariantIds.Add(id);
+            }
+
+            _fileCache[cacheKey] = Root;
+
+            Hierarchies = Root.Elements(C + "InstanceHierarchy").ToList();
+            IndexClasses(Root, cacheKey, alias: null, external: false);
+            LoadExternalReferences(Root, baseLocation, inContainer: IsContainer, depth: 0, topLevel: true);
+            var missing = ExternalRefs.Where(r => !r.Loaded).Select(r => Path.GetFileName(r.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            NestedLibraryProblems.RemoveAll(r => missing.Contains(Path.GetFileName(r.Path)));
+            IndexLinks();
+            IndexReferences();
+            IndexMirrors();
+        }
+    }
+
     public static AmlModel Load(string path, ServerOptions? options = null) =>
         new(Path.GetFullPath(path), options ?? ServerOptions.Default);
+
+    /// <summary>
+    /// A model of a document that does not exist yet. <paramref name="pretendPath"/> is the
+    /// path it would have: the directory it names is where a relative ExternalReference is
+    /// looked for, so that checking a document before writing it gives the same answer as
+    /// checking it afterwards.
+    /// </summary>
+    public static AmlModel FromTree(XElement root, string pretendPath, ServerOptions? options = null) =>
+        new(root, Path.GetFullPath(pretendPath), options ?? ServerOptions.Default);
 
     // ------------------------------------------------------------------ loading
 
@@ -540,7 +583,7 @@ public sealed class AmlModel
     {
         foreach (var el in Root.Descendants().Where(e => e.Name == C + "InternalElement" || e.Name == C + "ExternalInterface"))
         {
-            var masterId = MirrorReferenceOf(el);
+            var masterId = BaseReferenceWithoutPath(el);
             if (masterId is null) continue;
 
             if (!ById.TryGetValue(NormId(masterId), out var master))
@@ -581,18 +624,23 @@ public sealed class AmlModel
 
         if (Options.StrictConventions) return false;
 
+        // An attribute that declares an ID is not a reference to one.
+        if (dataType.Equals("xs:ID", StringComparison.OrdinalIgnoreCase)) return false;
+
         var name = NameOf(attribute);
-        var namedLikeReference = name.Length > 3 && name.StartsWith("ref", StringComparison.Ordinal) && char.IsUpper(name[3]);
+        var namedLikeReference = name.Length > 3
+                                 && name.StartsWith("ref", StringComparison.OrdinalIgnoreCase)
+                                 && char.IsUpper(name[3]);
         if (!namedLikeReference) return false;
         return ById.ContainsKey(NormId(value)) || Guid.TryParse(NormId(value), out _);
     }
 
     /// <summary>
-    /// CAEX mirror objects carry the master's ID instead of a class path in
-    /// RefBaseSystemUnitPath (elements) or RefBaseClassPath (interfaces). A class
-    /// path always contains '/', an ID never does.
+    /// The base reference of an element or interface when it holds no '/' and so cannot
+    /// be a class path: either a mirror's master ID, or a class name written without its
+    /// library. Which of the two it is, <see cref="MirrorReferenceOf"/> decides.
     /// </summary>
-    public static string? MirrorReferenceOf(XElement e)
+    public static string? BaseReferenceWithoutPath(XElement e)
     {
         var attributeName = e.Name.LocalName switch
         {
@@ -603,6 +651,19 @@ public sealed class AmlModel
         var value = attributeName is null ? null : ((string?)e.Attribute(attributeName))?.Trim();
         if (string.IsNullOrEmpty(value) || value.Contains('/')) return null;
         return value;
+    }
+
+    /// <summary>
+    /// The master ID of a mirror object. CAEX mirrors carry it in place of a class path.
+    /// A bare name that matches no ID but exactly one class is that class written without
+    /// its library, not a mirror: the element keeps its class, and the reference check
+    /// reports the missing library.
+    /// </summary>
+    public string? MirrorReferenceOf(XElement e)
+    {
+        var value = BaseReferenceWithoutPath(e);
+        if (value is null || ById.ContainsKey(NormId(value))) return value;
+        return ClassByName(value) is null ? value : null;
     }
 
     public XElement? MirrorMasterOf(XElement e)
@@ -701,6 +762,46 @@ public sealed class AmlModel
         return _plainIndex.TryGetValue(plain, out var tolerant) ? tolerant : null;
     }
 
+    /// <summary>True when an ExternalReference of the document declares this alias.</summary>
+    public bool AliasIsDeclared(string alias) =>
+        ExternalRefs.Any(r => string.Equals(r.Alias, alias, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The class a reference ends up at although the library its alias declares does not
+    /// carry it: the plain path matched a library of the same name, which need not be the
+    /// one meant. Resolving it keeps documents readable; the reference check says so.
+    /// An alias no ExternalReference declares is left alone, because that is how AML
+    /// documents name the standard libraries they embed.
+    /// </summary>
+    public ClassInfo? ResolvedPastItsAlias(string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || Classes.ContainsKey(reference)) return null;
+        var (alias, plain, _) = SplitClassPath(reference.Trim());
+        if (alias is null || !AliasIsDeclared(alias) || Classes.ContainsKey(alias + "@" + plain)) return null;
+        // A library that could not be read at all is reported there, not here.
+        if (ExternalRefs.Any(r => !r.Loaded && string.Equals(r.Alias, alias, StringComparison.OrdinalIgnoreCase))) return null;
+        return _plainIndex.TryGetValue(plain, out var tolerant) ? tolerant : null;
+    }
+
+    /// <summary>The last ':' that separates owner and interface, ignoring any inside brackets.</summary>
+    private static int LastSeparator(string side)
+    {
+        var depth = 0;
+        for (var i = side.Length - 1; i >= 0; i--)
+        {
+            if (side[i] == ']') depth++;
+            else if (side[i] == '[') depth--;
+            else if (side[i] == ':' && depth == 0) return i;
+        }
+        return -1;
+    }
+
+    private static string Unbracket(string part)
+    {
+        var trimmed = part.Trim();
+        return trimmed.Length > 1 && trimmed[0] == '[' && trimmed[^1] == ']' ? trimmed[1..^1] : trimmed;
+    }
+
     /// <summary>
     /// Splits a class path into alias and plain path. A segment in square brackets is a
     /// name that may itself contain '/' or '@', as in [ATL_http://opcfoundation.org/UA/]/[NodeId].
@@ -741,12 +842,22 @@ public sealed class AmlModel
             throw new McpException("Name an element: its ID, a path like Hierarchy/Parent/Child, or its name. Use find_elements to look one up.");
 
         if (ById.TryGetValue(NormId(q), out var byId))
+        {
+            // A class has an ID too, and its card is a different tool.
+            if (ClassKinds.Contains(byId.Name.LocalName))
+                throw new McpException(
+                    $"{q} is the {byId.Name.LocalName} {DisplayPathOf(byId)}, not an element. Ask get_class for it.");
             return byId.Name == C + "ExternalInterface" ? OwnerOf(byId) ?? byId : byId;
+        }
 
         if (q.Contains('/'))
         {
-            var byPath = FindByPath(q);
-            if (byPath is not null) return byPath;
+            var byPath = FindAllByPath(q);
+            if (byPath.Count == 1) return byPath[0];
+            if (byPath.Count > 1)
+                throw new McpException(
+                    $"The path '{q}' leads to {byPath.Count} elements. Use one of their IDs:\n" +
+                    string.Join("\n", byPath.Take(15).Select(e => $"  {PathOf(e)}  [{ShortClass(ClassOf(e))}]  id={IdOf(e)}")));
         }
 
         var matches = Root.Descendants()
@@ -761,10 +872,17 @@ public sealed class AmlModel
         throw new McpException($"No element '{q}'. Use an ID, a path like Hierarchy/Parent/Child, or find_elements.");
     }
 
-    public XElement? FindByPath(string path)
+    public XElement? FindByPath(string path) => FindAllByPath(path).FirstOrDefault();
+
+    /// <summary>
+    /// Every element a path leads to. Names are not unique in CAEX, so two siblings can
+    /// carry the same one and a path can mean either of them.
+    /// </summary>
+    public List<XElement> FindAllByPath(string path)
     {
+        var found = new List<XElement>();
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0) return null;
+        if (parts.Length == 0) return found;
 
         static bool Is(XElement e, string name) => string.Equals(NameOf(e), name, StringComparison.OrdinalIgnoreCase);
 
@@ -772,14 +890,14 @@ public sealed class AmlModel
         if (starts.Count == 0)
             starts = Hierarchies.SelectMany(h => h.Elements(C + "InternalElement")).Where(e => Is(e, parts[0])).ToList();
 
-        foreach (var start in starts)
+        var level = starts;
+        for (var i = 1; i < parts.Length; i++)
         {
-            XElement? current = start;
-            for (var i = 1; i < parts.Length && current is not null; i++)
-                current = current.Elements(C + "InternalElement").FirstOrDefault(e => Is(e, parts[i]));
-            if (current is not null) return current;
+            var next = parts[i];
+            level = level.SelectMany(e => e.Elements(C + "InternalElement")).Where(e => Is(e, next)).ToList();
         }
-        return null;
+        found.AddRange(level.Distinct());
+        return found;
     }
 
     public IEnumerable<Edge> EdgesOf(XElement element, bool includeContainment = true)
@@ -802,10 +920,13 @@ public sealed class AmlModel
         if (string.IsNullOrWhiteSpace(side)) return null;
         if (ById.TryGetValue(NormId(side), out var byId) && byId.Name == C + "ExternalInterface") return byId;
 
-        var colon = side.LastIndexOf(':');
+        // The legacy form is owner:interface, and either part may be wrapped in brackets,
+        // which CAEX uses when a name contains a separator: [ID]:[Interface name].
+        var colon = LastSeparator(side);
         if (colon <= 0) return null;
-        var ownerRef = side[..colon];
-        var interfaceName = side[(colon + 1)..];
+        var ownerRef = Unbracket(side[..colon]);
+        var interfaceName = Unbracket(side[(colon + 1)..]);
+        if (ById.TryGetValue(NormId(side), out var bracketed) && bracketed.Name == C + "ExternalInterface") return bracketed;
         var owner = ById.TryGetValue(NormId(ownerRef), out var o) ? o : FindByPath(ownerRef);
         return owner?.Descendants(C + "ExternalInterface")
             .FirstOrDefault(i => string.Equals(NameOf(i), interfaceName, StringComparison.OrdinalIgnoreCase));
@@ -836,17 +957,69 @@ public sealed class AmlModel
     public static XElement AnchorOf(XElement e) =>
         e.Name.LocalName == "ExternalInterface" ? OwnerOf(e) ?? e : e;
 
+    private static readonly HashSet<string> ObjectKinds = new()
+        { "InternalElement", "InstanceHierarchy", "SystemUnitClass", "RoleClass", "InterfaceClass", "AttributeType" };
+
+    /// <summary>
+    /// The object a class reference belongs to. An interface, a role requirement and a
+    /// supported role all state the class of the object that holds them.
+    /// </summary>
+    public static XElement ObjectOf(XElement e) =>
+        e.AncestorsAndSelf().FirstOrDefault(a => ObjectKinds.Contains(a.Name.LocalName)) ?? e;
+
+    /// <summary>
+    /// Who declares this class: elements in the instance hierarchies, and classes in the
+    /// libraries, which are the subclasses and whoever requires the class of them. An
+    /// object that names the class twice, say as a base class and as a role, counts once.
+    /// </summary>
+    public (int Elements, int Classes) UsersOf(XElement cls)
+    {
+        var users = Root.Descendants()
+            .Where(e => ClassReferenceAttributes.Any(a => ResolveClass((string?)e.Attribute(a), e)?.Element == cls))
+            .Select(ObjectOf)
+            .Distinct()
+            .ToList();
+        var inHierarchies = users.Count(u => u.AncestorsAndSelf(C + "InstanceHierarchy").Any());
+        return (inHierarchies, users.Count - inHierarchies);
+    }
+
     public static string? HierarchyNameOf(XElement? e) =>
         e is null ? null : NameOf(e.AncestorsAndSelf(C + "InstanceHierarchy").FirstOrDefault());
 
-    /// <summary>PathOf for instance elements, the library path for classes.</summary>
+    /// <summary>
+    /// The four kinds of class CAEX has, however the caller writes one down. False for a
+    /// word that names none of them, so that a caller can be told instead of guessed at.
+    /// </summary>
+    public static bool TryClassKind(string text, out string kind)
+    {
+        var compact = new string((text ?? "").Where(char.IsLetter).ToArray()).ToLowerInvariant();
+        kind = compact switch
+        {
+            "role" or "roleclass" => "RoleClass",
+            "interface" or "interfaceclass" => "InterfaceClass",
+            "systemunit" or "systemunitclass" or "unit" or "suc" => "SystemUnitClass",
+            "attribute" or "attributetype" => "AttributeType",
+            _ => ""
+        };
+        return kind.Length > 0;
+    }
+
+    /// <summary>True for anything that lives in a class library rather than a hierarchy.</summary>
+    public static bool IsInClassLibrary(XElement e) =>
+        e.AncestorsAndSelf().Any(a => LibraryKinds.Contains(a.Name.LocalName));
+
+    /// <summary>
+    /// Where an element is, said so that a reader can find it: the path through the
+    /// hierarchy, or, for a class template, the library and class it sits in. PathOf
+    /// alone would name a template's interface "Connector" and leave it at that.
+    /// </summary>
     public static string DisplayPathOf(XElement e)
     {
-        var path = PathOf(e);
-        if (path.Length > 0) return path;
+        if (!IsInClassLibrary(e)) return PathOf(e);
         return string.Join("/", e.AncestorsAndSelf()
-            .Where(a => LibraryKinds.Contains(a.Name.LocalName) || ClassKinds.Contains(a.Name.LocalName))
-            .Reverse().Select(a => NameOf(a)));
+            .Where(a => LibraryKinds.Contains(a.Name.LocalName) || ClassKinds.Contains(a.Name.LocalName)
+                        || a.Name.LocalName is "InternalElement" or "ExternalInterface")
+            .Reverse().Select(NameOf));
     }
 
     public static string PathOf(XElement e) =>

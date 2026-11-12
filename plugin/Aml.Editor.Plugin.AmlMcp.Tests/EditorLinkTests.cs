@@ -176,6 +176,27 @@ public sealed class EditorLinkTests : IDisposable
         Assert.Null(Ack());
     }
 
+    /// <summary>
+    /// The request file outlives the server. One from an earlier session was answered when
+    /// the panel opened, and the editor then reported that the assistant had pointed at a
+    /// document the user did not have open.
+    /// </summary>
+    [Fact]
+    public void A_request_left_over_from_an_earlier_session_is_left_alone()
+    {
+        _editor.CurrentDocument = Path.Combine(_directory, "plant.aml");
+        Request("{the-id}", _editor.CurrentDocument);
+        File.SetLastWriteTimeUtc(_requestFile, DateTime.UtcNow.AddHours(-2));
+
+        using var later = new EditorLink(_editor, action => action(), _reported.Add, _requestFile,
+            watch: false, since: DateTime.UtcNow.AddMinutes(-1));
+        later.Poll();
+
+        Assert.Empty(_editor.Selected);
+        Assert.Null(Ack());
+        Assert.Empty(_reported);
+    }
+
     [Fact]
     public void Nothing_happens_while_there_is_no_request()
     {

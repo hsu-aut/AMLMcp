@@ -6,11 +6,15 @@ using Microsoft.Extensions.Logging;
 if (args.Contains("--help") || args.Contains("-h"))
 {
     Console.WriteLine("""
-        aml-mcp: a read-only Model Context Protocol server for AutomationML (CAEX 3.0, CAEX 2.15, AMLX).
+        aml-mcp: a Model Context Protocol server for AutomationML (CAEX 3.0, CAEX 2.15, AMLX).
+        It reads; it writes only where --write allows it.
 
         Usage: aml-mcp [options]
           --root <dir>            Restrict reading to this directory (repeatable).
                                   Environment: AML_MCP_ROOTS, separated by the platform path separator.
+          --write <dir>           Allow writing below this directory (repeatable). Without it the
+                                  server writes nothing. A readable directory is not a writable one.
+                                  Environment: AML_MCP_WRITE, separated by the platform path separator.
           --follow <file>         Answer about the document whose path this file contains, as long as
                                   the client names none. An editor plugin keeps the file up to date.
                                   Environment: AML_MCP_FOLLOW
@@ -46,16 +50,25 @@ catch (ArgumentException ex)
 }
 
 Console.Error.WriteLine($"aml-mcp: readable directories: {options.RootsDescription}");
+Console.Error.WriteLine($"aml-mcp: writable directories: {options.WriteRootsDescription}");
+
+// A document written where the server may not read is a document its own tools refuse
+// afterwards. Worth a word at startup, not only in the answer that hits it.
+foreach (var writable in options.WriteRoots.Where(d => !options.Allows(d)))
+    Console.Error.WriteLine($"aml-mcp: warning: '{writable}' may be written but not read. " +
+                            "Add it to --root as well, or the read tools will refuse what was written there.");
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// stdout belongs to the MCP protocol; all logging goes to stderr.
+// stdout belongs to the MCP protocol; all logging goes to stderr. Only what the operator
+// needs to see: a request-by-request log of a local server is noise in their client.
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<DocumentStore>();
 builder.Services
-    .AddMcpServer(server => server.ServerInstructions = Instructions(options))
+    .AddMcpServer(server => server.ServerInstructions = ServerInstructions.For(options))
     .WithStdioServerTransport()
     .WithToolsFromAssembly()
     .WithResourcesFromAssembly()
@@ -64,23 +77,3 @@ builder.Services
 await builder.Build().RunAsync();
 return 0;
 
-static string Instructions(ServerOptions options)
-{
-    var text = new System.Text.StringBuilder();
-    text.AppendLine("Reads AutomationML documents (CAEX 3.0, CAEX 2.15, AMLX). Every answer names element IDs and paths, so state them when you report a fact.");
-    if (options.FollowFile is not null)
-        text.AppendLine("The user has an AutomationML editor open. Call open_aml_document WITHOUT a path to read the document they are looking at right now; the other tools then work on it as well. Do not ask for a file path or an upload first.");
-    else
-        text.AppendLine("Call open_aml_document with the path of a file first; the other tools then work on it.");
-    // Clients that load tools on demand search by name and description. Naming the tools
-    // here keeps a failed search from looking like a server without those tools.
-    text.AppendLine("Tools: open_aml_document (overview), get_tree (structure), find_elements (search), " +
-                    "get_element (one element with its attributes, interfaces and every link), get_neighbors " +
-                    "(follow links and references), find_path (how two elements are connected), get_class, " +
-                    "list_classes, check_references. Ask for them by name if your client loads tools on demand.");
-    if (options.SelectFile is not null)
-        text.AppendLine("You can point the user's editor at an element with show_in_editor. Use it when you name an element they would otherwise have to look up by hand.");
-    if (options.Roots.Count > 0)
-        text.AppendLine($"Readable directories: {options.RootsDescription}.");
-    return text.ToString();
-}

@@ -18,7 +18,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>aml-mcp</ToolCommandName>
     <Title>AutomationML MCP Server</Title>
-    <Description>An MCP server for AutomationML (IEC 62714). Lets a language model client read and navigate CAEX 3.0, CAEX 2.15 and AMLX documents: hierarchies, class libraries, links, mirror objects and object references. Reads only.</Description>
+    <Description>An MCP server for AutomationML (IEC 62714). Lets a language model client read and navigate CAEX 3.0, CAEX 2.15 and AMLX documents: hierarchies, class libraries, links, mirror objects and object references. Writes new CAEX 3.0 documents, validated against the schema, into the directories it is given with --write; without one it writes nothing.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <!-- A short readme of its own: nuget.org does not resolve the relative links of the repository readme. -->
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
@@ -50,6 +50,15 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The CAEX 3.0 schema, as published with IEC 62714 by AutomationML e.V., unchanged.
+      Every written document is validated against it before it reaches the disk, so the
+      schema has to travel with the server. The logical name avoids the dots of the file.
+    -->
+    <EmbeddedResource Include="schema\CAEX_ClassModel_V.3.0.xsd" LogicalName="AmlMcp.CaexSchema30.xsd" />
   </ItemGroup>
 
   <ItemGroup>
