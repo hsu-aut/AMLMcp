@@ -81,7 +81,9 @@ document that is open in the editor. It keeps `--follow` up to date, so the assi
 whatever document you open there, and it watches `--select`, so the assistant can expand and highlight
 an element in the tree. A checkbox next to the readable directory passes it as `--write` as well, so
 the assistant may create new documents there; it is off until the user ticks it, and the open
-document is never changed either way. Build it on Windows with the .NET 10 SDK; the server is published into the
+document is never changed either way. Claude Desktop is registered in one click; every other MCP
+client is registered by pointing the panel at its configuration file, which it writes under the key
+that file already uses. Build it on Windows with the .NET 10 SDK; the server is published into the
 plugin as part of that build:
 
 ```powershell

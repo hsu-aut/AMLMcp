@@ -11,7 +11,11 @@ The panel carries the server, so nothing else has to be installed.
   reports what is in it: views, elements, links, references, and whether everything resolves.
 - **Register with Claude Desktop.** Writes the entry into the assistant's configuration, keeping any
   other servers that are already there.
-- **Copy configuration.** The same entry as JSON, for any other MCP client.
+- **Register in another client's file.** For every other MCP client: point at its configuration
+  file and the panel writes the entry into it, under the key that file already uses, keeping
+  everything else in it. No list of vendors and paths that would go stale.
+- **Copy configuration.** The same entry as JSON, to paste into a client that keeps its servers
+  somewhere else.
 - **Questions to try.** Three questions about the document you just read, with the names of its own
   views and of the element that ties the most of them together.
 

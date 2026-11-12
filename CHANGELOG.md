@@ -39,6 +39,14 @@ Not released yet.
 - A checkbox next to the readable directory lets the assistant create new documents in that
   directory, by passing it as the write fence as well. It is off until the user ticks it, the panel
   shows the entry it writes, and the document open in the editor is never changed.
+- Any MCP client can be registered from the panel, not only Claude Desktop: point it at the
+  client's configuration file and the entry goes in under the key that file already uses, with
+  everything else in it left alone.
+- The panel now hears about the document the editor opens. It took the notification every active
+  plugin gets; the one it listened to before reaches only plugins that declare themselves
+  reactive, which this one does not, so the readable directory stayed empty, the server was
+  registered without a fence, and the file the assistant follows was whatever an earlier session
+  had left behind.
 - The plugin package carries the matching server, which the release checks before publishing.
 
 ### Reading, corrected
