@@ -350,30 +350,50 @@ internal sealed class McpProbe : IDisposable
     /// <summary>Writes the server into the Claude Desktop configuration, keeping other servers.</summary>
     public static string RegisterWithClaudeDesktop(string exePath, string? root, string? configFile = null,
         bool writable = false)
+        => RegisterInFile(exePath, root, configFile ?? ClaudeDesktopConfigFile, writable).Path;
+
+    /// <summary>Where the entry went: the file, the key it went under, and what else is in there.</summary>
+    public sealed record ClientEntry(string Path, string Key, int OtherServers);
+
+    /// <summary>
+    /// Writes the server into any MCP client's configuration file and keeps everything else in it.
+    /// The clients disagree on one thing: most of them, Claude Desktop and Claude Code among them,
+    /// list servers under "mcpServers", while VS Code uses "servers" and wants the transport named
+    /// in the entry. The file decides which it is; a file that has neither key, and a file that
+    /// does not exist yet, get the common shape.
+    /// </summary>
+    public static ClientEntry RegisterInFile(string exePath, string? root, string configFile,
+        bool writable = false)
     {
-        var path = configFile ?? ClaudeDesktopConfigFile;
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(configFile)!);
 
         JsonObject configuration;
         try
         {
-            configuration = File.Exists(path)
-                ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject()
+            configuration = File.Exists(configFile)
+                ? JsonNode.Parse(File.ReadAllText(configFile)) as JsonObject ?? new JsonObject()
                 : new JsonObject();
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"{path} is not valid JSON. Fix or remove the file, then try again.");
+            throw new InvalidOperationException(
+                $"{configFile} is not valid JSON. Fix or remove the file, then try again.");
         }
 
-        if (configuration["mcpServers"] is not JsonObject servers)
+        var key = configuration["mcpServers"] is not JsonObject && configuration["servers"] is JsonObject
+            ? "servers"
+            : "mcpServers";
+        if (configuration[key] is not JsonObject servers)
         {
             servers = new JsonObject();
-            configuration["mcpServers"] = servers;
+            configuration[key] = servers;
         }
-        servers["aml"] = Configuration(exePath, root, writable)["mcpServers"]!["aml"]!.DeepClone();
 
-        File.WriteAllText(path, configuration.ToJsonString(Pretty));
-        return path;
+        var entry = (JsonObject)Configuration(exePath, root, writable)["mcpServers"]!["aml"]!.DeepClone();
+        if (key == "servers") entry["type"] = "stdio";
+        servers["aml"] = entry;
+
+        File.WriteAllText(configFile, configuration.ToJsonString(Pretty));
+        return new ClientEntry(configFile, key, servers.Count - 1);
     }
 }

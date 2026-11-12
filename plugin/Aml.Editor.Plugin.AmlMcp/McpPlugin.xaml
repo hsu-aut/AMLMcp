@@ -35,7 +35,8 @@
       <WrapPanel Margin="0,14,0,0">
         <Button x:Name="TestButton" Content="Read the open document" Padding="14,6" Margin="0,0,8,8" FontWeight="SemiBold" Click="OnTest" />
         <Button x:Name="ClaudeButton" Content="Register with Claude Desktop" Padding="14,6" Margin="0,0,8,8" Click="OnRegisterClaudeDesktop" />
-        <Button x:Name="CopyButton" Content="Copy configuration" Padding="14,6" Margin="0,0,8,8" Click="OnCopyConfiguration" />
+        <Button x:Name="OtherClientButton" Content="Register in another client's file ..." Padding="14,6" Margin="0,0,8,8" Click="OnRegisterOtherClient" />
+        <Button x:Name="CopyButton" Content="Copy configuration for any other client" Padding="14,6" Margin="0,0,8,8" Click="OnCopyConfiguration" />
       </WrapPanel>
 
       <!-- result of the last run -->

@@ -251,6 +251,40 @@ public partial class McpPlugin : PluginViewBase
         }
     }
 
+    /// <summary>
+    /// Any other MCP client: the user points at its configuration file and the panel writes the
+    /// entry into it. Deliberately not a list of vendors and their paths, which would go stale
+    /// and could write into the wrong file.
+    /// </summary>
+    private void OnRegisterOtherClient(object sender, RoutedEventArgs e)
+    {
+        if (ServerPath() is not { } exe) return;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Configuration file of the MCP client",
+            Filter = "Configuration (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = false,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var written = McpProbe.RegisterInFile(exe, Root(), dialog.FileName, Writable());
+            Status(true, "written, restart the client to pick the server up");
+            ResultBox.Visibility = Visibility.Visible;
+            ResultHeadline.Text = "Another client";
+            ResultFacts.Text = written.Path;
+            ResultVerdict.Text = written.OtherServers == 1
+                ? $"The entry went in under '{written.Key}'; one other server in that file was left untouched"
+                : $"The entry went in under '{written.Key}'; {written.OtherServers} other servers in that file were left untouched";
+            ResultVerdict.Foreground = Good;
+            Details.Text = McpProbe.Configuration(exe, Root(), Writable()).ToJsonString(McpProbe.Pretty);
+        }
+        catch (Exception ex)
+        {
+            Status(false, ex.Message);
+        }
+    }
+
     private void OnCopyConfiguration(object sender, RoutedEventArgs e)
     {
         if (ServerPath() is not { } exe) return;

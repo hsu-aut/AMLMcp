@@ -170,6 +170,70 @@ public sealed class ConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void Another_clients_file_keeps_the_key_it_already_uses()
+    {
+        File.WriteAllText(_configFile, """
+            { "servers": { "other": { "command": "other.exe" } } }
+            """);
+
+        var written = McpProbe.RegisterInFile(Exe, @"C:\models", _configFile);
+
+        Assert.Equal("servers", written.Key);
+        Assert.Equal(1, written.OtherServers);
+        var json = JsonNode.Parse(File.ReadAllText(_configFile))!;
+        Assert.Equal(Exe, json["servers"]!["aml"]!["command"]!.ToString());
+        Assert.Equal("other.exe", json["servers"]!["other"]!["command"]!.ToString());
+        Assert.Null(json["mcpServers"]);
+    }
+
+    [Fact]
+    public void A_client_that_wants_a_transport_named_gets_one()
+    {
+        File.WriteAllText(_configFile, """{ "servers": { } }""");
+
+        McpProbe.RegisterInFile(Exe, @"C:\models", _configFile);
+
+        var json = JsonNode.Parse(File.ReadAllText(_configFile))!;
+        Assert.Equal("stdio", json["servers"]!["aml"]!["type"]!.ToString());
+    }
+
+    [Fact]
+    public void A_file_that_uses_mcpServers_is_written_the_way_Claude_Desktop_expects()
+    {
+        File.WriteAllText(_configFile, """{ "mcpServers": { } }""");
+
+        var written = McpProbe.RegisterInFile(Exe, @"C:\models", _configFile);
+
+        Assert.Equal("mcpServers", written.Key);
+        var json = JsonNode.Parse(File.ReadAllText(_configFile))!;
+        Assert.Null(json["mcpServers"]!["aml"]!["type"]);
+    }
+
+    [Fact]
+    public void A_file_that_does_not_exist_yet_is_given_the_common_shape()
+    {
+        var fresh = Path.Combine(_directory, "new-client.json");
+
+        var written = McpProbe.RegisterInFile(Exe, @"C:\models", fresh, writable: true);
+
+        Assert.Equal("mcpServers", written.Key);
+        Assert.Equal(0, written.OtherServers);
+        var args = JsonNode.Parse(File.ReadAllText(fresh))!["mcpServers"]!["aml"]!["args"]!.AsArray()
+            .Select(a => a!.ToString()).ToList();
+        Assert.Contains("--write", args);
+    }
+
+    [Fact]
+    public void A_client_file_that_is_not_json_is_refused_with_its_path()
+    {
+        File.WriteAllText(_configFile, "this is not json");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => McpProbe.RegisterInFile(Exe, @"C:\models", _configFile));
+
+        Assert.Contains(_configFile, ex.Message);
+    }
+
+    [Fact]
     public void A_configuration_that_is_not_json_is_refused_with_its_path()
     {
         File.WriteAllText(_configFile, "this is not json");
